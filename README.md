@@ -96,6 +96,12 @@ bun run webhook:test <url> <secret>
 | `MEDIA_MAX_BYTES` | 16 MiB | Larger media is dropped and the note kept. |
 | `ALLOWED_RECIPIENTS` | empty | Comma separated. Outside production, nothing is sent to anyone else. |
 
+## Watching it
+
+`whatsapp-watcher-<stage>` in CloudWatch Dashboards holds the whole pipeline on one page, and its
+last widget lists every alarm. That widget is worth knowing about: an alarm reads OK both when it is
+healthy and when it has never seen a datapoint, and side by side the difference is obvious.
+
 ## Known gaps
 
 - A reminder that fires more than 24 hours after the user last wrote needs an approved template.

@@ -40,14 +40,20 @@ const isProduction = $app.stage === "production";
 const NAMESPACE = "WhatsAppWatcher";
 const businessDimensions = (service: string) => ({ stage: $app.stage, service });
 
+const created: aws.cloudwatch.MetricAlarm[] = [];
+
 function alarm(name: string, args: Omit<aws.cloudwatch.MetricAlarmArgs, "name">) {
-  return new aws.cloudwatch.MetricAlarm(name, {
+  const metricAlarm = new aws.cloudwatch.MetricAlarm(name, {
     // Silence while nothing has happened yet; only real data raises an alarm.
     treatMissingData: "notBreaching",
     alarmActions: [opsAlerts.arn],
     okActions: [opsAlerts.arn],
     ...args,
   });
+
+  created.push(metricAlarm);
+
+  return metricAlarm;
 }
 
 const lambdas = [
@@ -265,4 +271,181 @@ alarm("LowModelConfidence", {
   evaluationPeriods: 1,
   threshold: 0.5,
   comparisonOperator: "LessThanThreshold",
+});
+
+/**
+ * The alarms answer whether something is broken; this answers what the system is doing. It is
+ * where you look after being woken, and where a slow degradation shows before any threshold.
+ */
+const dashboardBody = $resolve({
+  region: aws.getRegionOutput().name,
+  apiId: api.nodes.api.id,
+  queue: noteProcessingQueue.nodes.queue.name,
+  queueDlq: noteProcessingDlq.nodes.queue.name,
+  dispatch: alarmDispatchQueue.nodes.queue.name,
+  dispatchDlq: alarmDispatchDlq.nodes.queue.name,
+  ingestName: ingest.name,
+  outboxName: outbox.name,
+  processorName: processor.name,
+  notifierName: notifier.name,
+  alarmArns: $resolve(created.map((metricAlarm) => metricAlarm.arn)),
+}).apply((ids) => {
+  const stage = $app.stage;
+  const business = (metricName: string, service: string, label: string, stat = "Sum") => [
+    NAMESPACE,
+    metricName,
+    "stage",
+    stage,
+    "service",
+    service,
+    { label, stat },
+  ];
+  const queueDepth = (name: string, label: string) => [
+    "AWS/SQS",
+    "ApproximateNumberOfMessagesVisible",
+    "QueueName",
+    name,
+    { label, stat: "Maximum" },
+  ];
+  const lambdaErrors = (name: string, label: string) => [
+    "AWS/Lambda",
+    "Errors",
+    "FunctionName",
+    name,
+    { label, stat: "Sum" },
+  ];
+
+  const metric = (
+    x: number,
+    y: number,
+    width: number,
+    title: string,
+    metrics: unknown[][],
+    extra: Record<string, unknown> = {},
+  ) => ({
+    type: "metric",
+    x,
+    y,
+    width,
+    height: 6,
+    properties: {
+      title,
+      region: ids.region,
+      view: "timeSeries",
+      stacked: false,
+      period: 300,
+      metrics,
+      ...extra,
+    },
+  });
+
+  return JSON.stringify({
+    widgets: [
+      metric(0, 0, 8, "Webhook", [
+        ["AWS/ApiGateway", "Count", "ApiId", ids.apiId, { label: "peticiones", stat: "Sum" }],
+        ["AWS/ApiGateway", "5xx", "ApiId", ids.apiId, { label: "5xx", stat: "Sum" }],
+        ["AWS/ApiGateway", "4xx", "ApiId", ids.apiId, { label: "4xx", stat: "Sum" }],
+      ]),
+      metric(
+        8,
+        0,
+        8,
+        "Latencia del webhook",
+        [["AWS/ApiGateway", "Latency", "ApiId", ids.apiId, { label: "p99", stat: "p99" }]],
+        { yAxis: { left: { label: "ms", showUnits: false } } },
+      ),
+      metric(16, 0, 8, "Notas entrantes", [
+        business("notes_ingested", "ingest", "recibidas"),
+        business("notes_processed", "processor", "procesadas"),
+      ]),
+
+      metric(0, 6, 12, "Profundidad de colas", [
+        queueDepth(ids.queue, "note-processing"),
+        queueDepth(ids.dispatch, "alarm-dispatch"),
+        queueDepth(ids.queueDlq, "DLQ note-processing"),
+        queueDepth(ids.dispatchDlq, "DLQ alarm-dispatch"),
+      ]),
+      metric(
+        12,
+        6,
+        12,
+        "Antigüedad del mensaje más viejo",
+        [
+          [
+            "AWS/SQS",
+            "ApproximateAgeOfOldestMessage",
+            "QueueName",
+            ids.queue,
+            { label: "note-processing", stat: "Maximum" },
+          ],
+          [
+            "AWS/SQS",
+            "ApproximateAgeOfOldestMessage",
+            "QueueName",
+            ids.dispatch,
+            { label: "alarm-dispatch", stat: "Maximum" },
+          ],
+        ],
+        { annotations: { horizontal: [{ label: "umbral de alarma", value: 900 }] } },
+      ),
+
+      metric(0, 12, 8, "Notas descartadas", [
+        business("notes_dropped", "processor", "descartadas por error permanente"),
+      ]),
+      metric(
+        8,
+        12,
+        8,
+        "Latencia del modelo",
+        [
+          business("model_latency_ms", "processor", "media", "Average"),
+          business("model_latency_ms", "processor", "p95", "p95"),
+        ],
+        { yAxis: { left: { label: "ms", showUnits: false } } },
+      ),
+      metric(
+        16,
+        12,
+        8,
+        "Calidad del modelo",
+        [
+          business("model_errors", "processor", "errores"),
+          business("model_confidence", "processor", "confianza media", "Average"),
+        ],
+        { annotations: { horizontal: [{ label: "confianza mínima", value: 0.5 }] } },
+      ),
+
+      metric(0, 18, 12, "Avisos al usuario", [
+        business("alarms_attempted", "notifier", "intentados"),
+        business("alarms_sent", "notifier", "enviados"),
+        business("alarms_failed", "notifier", "fallidos"),
+      ]),
+      metric(12, 18, 12, "Errores por lambda", [
+        lambdaErrors(ids.ingestName, "ingest"),
+        lambdaErrors(ids.outboxName, "outbox"),
+        lambdaErrors(ids.processorName, "processor"),
+        lambdaErrors(ids.notifierName, "notifier"),
+      ]),
+
+      {
+        type: "alarm",
+        x: 0,
+        y: 24,
+        width: 24,
+        height: 8,
+        properties: {
+          // Side by side it is obvious which alarms are OK with data and which never saw a
+          // datapoint, a difference the console hides when you look at them one by one.
+          title: "Estado de las alarmas",
+          alarms: ids.alarmArns,
+          sortBy: "stateUpdatedTimestamp",
+        },
+      },
+    ],
+  });
+});
+
+export const dashboard = new aws.cloudwatch.Dashboard("WatcherDashboard", {
+  dashboardName: `whatsapp-watcher-${$app.stage}`,
+  dashboardBody,
 });

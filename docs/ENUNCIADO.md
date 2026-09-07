@@ -295,8 +295,11 @@ avisar al usuario de que su nota no se pudo procesar.
   `service`: `notes_ingested`, `notes_processed`, `model_latency_ms`, `model_errors`,
   `model_confidence`, `alarms_attempted`, `alarms_sent`, `alarms_failed`. EMF significa que la
   métrica sale del propio log: no hay `PutMetricData` que pueda fallar en el camino crítico.
-- Un **dashboard** por stage: entradas al webhook, profundidad de colas, errores por Lambda, latencia de
-  Bedrock, alarmas enviadas.
+- Un **dashboard** por stage (`whatsapp-watcher-<stage>`), definido como código en
+  `infra/monitoring.ts`: webhook y su latencia, notas entrantes y procesadas, profundidad de las
+  cuatro colas con la antigüedad del mensaje más viejo, notas descartadas, latencia y calidad del
+  modelo, avisos al usuario, errores por lambda, y un widget con el estado de las 23 alarmas.
+  Las alarmas dicen si algo está roto; el dashboard dice qué está haciendo el sistema.
 - Retención de logs: 14 días en `dev`, 90 días en `production`.
 
 ## 9. Seguridad
