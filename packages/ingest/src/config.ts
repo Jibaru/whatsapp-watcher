@@ -6,6 +6,7 @@ export interface IngestConfig {
   readonly kapsoWebhookSecret: string;
   readonly mediaBucket: string;
   readonly tableName: string;
+  readonly eventBusName: string;
   readonly mediaMaxBytes: number;
 }
 
@@ -20,6 +21,7 @@ export function loadIngestConfig(env: NodeJS.ProcessEnv = process.env): IngestCo
     kapsoWebhookSecret: requireEnv(env, "KAPSO_WEBHOOK_SECRET"),
     mediaBucket: requireEnv(env, "MEDIA_BUCKET"),
     tableName: requireEnv(env, "TABLE_NAME"),
+    eventBusName: requireEnv(env, "EVENT_BUS_NAME"),
     mediaMaxBytes: Number(env.MEDIA_MAX_BYTES ?? DEFAULT_MEDIA_MAX_BYTES),
   };
 }

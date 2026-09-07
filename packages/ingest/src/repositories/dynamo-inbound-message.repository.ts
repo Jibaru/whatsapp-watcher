@@ -41,7 +41,7 @@ export class DynamoInboundMessageRepository implements InboundMessageRepository 
       if (error instanceof ConditionalCheckFailedException) {
         this.logger.info("inbound_message_duplicate", { pk: item.pk, sk: item.sk });
 
-        return { stored: false, duplicate: true };
+        return { stored: false, duplicate: true, pk: item.pk, sk: item.sk };
       }
 
       throw error;
@@ -49,6 +49,6 @@ export class DynamoInboundMessageRepository implements InboundMessageRepository 
 
     this.logger.info("inbound_message_persisted", { pk: item.pk, sk: item.sk });
 
-    return { stored: true, duplicate: false };
+    return { stored: true, duplicate: false, pk: item.pk, sk: item.sk };
   }
 }

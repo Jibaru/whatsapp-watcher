@@ -27,12 +27,17 @@ export default $config({
 
   async run() {
     const { api } = await import("./infra/api");
+    const { bus, noteProcessingQueue } = await import("./infra/events");
     const { ingest } = await import("./infra/ingest");
+    const { processor } = await import("./infra/processor");
 
     return {
       api: api.url,
       webhook: $interpolate`${api.url}/webhooks/kapso`,
       ingestFunction: ingest.name,
+      processorFunction: processor.name,
+      bus: bus.name,
+      queue: noteProcessingQueue.url,
     };
   },
 });

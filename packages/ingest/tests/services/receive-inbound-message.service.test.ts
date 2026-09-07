@@ -4,13 +4,19 @@ import {
   CallLog,
   FakeInboundMediaRepository,
   FakeInboundMessageRepository,
+  FakeNoteEventPublisher,
   MemoryLogger,
 } from "../support/fakes.js";
 
 const receivedAt = new Date("2026-09-06T10:00:00.000Z");
 
 function build(
-  options: { logRawPayload?: boolean; duplicate?: boolean; media?: { tooLarge?: boolean; fails?: boolean } } = {},
+  options: {
+    logRawPayload?: boolean;
+    duplicate?: boolean;
+    media?: { tooLarge?: boolean; fails?: boolean };
+    publisher?: { fails?: boolean };
+  } = {},
 ) {
   const logger = new MemoryLogger();
   const callLog = new CallLog();
@@ -19,12 +25,13 @@ function build(
     callLog,
   );
   const mediaRepository = new FakeInboundMediaRepository(options.media ?? {}, callLog);
-  const service = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
+  const publisher = new FakeNoteEventPublisher(options.publisher ?? {}, callLog);
+  const service = new ReceiveInboundMessageService(repository, mediaRepository, publisher, logger, {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });
 
-  return { service, repository, mediaRepository, logger, callLog };
+  return { service, repository, mediaRepository, publisher, logger, callLog };
 }
 
 describe("ReceiveInboundMessageService", () => {
@@ -108,7 +115,7 @@ describe("ReceiveInboundMessageService", () => {
       rawPayload: {},
     });
 
-    expect(callLog.calls).toEqual(["store", "save"]);
+    expect(callLog.calls).toEqual(["store", "save", "publish"]);
     expect(mediaRepository.stored[0]).toMatchObject({
       sourceUrl: "https://kapso.example/media/1.jpg",
       messageId: "wamid-1",

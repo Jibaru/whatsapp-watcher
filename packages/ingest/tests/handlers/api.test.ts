@@ -6,6 +6,7 @@ import { ReceiveInboundMessageService } from "../../src/services/receive-inbound
 import {
   FakeInboundMediaRepository,
   FakeInboundMessageRepository,
+  FakeNoteEventPublisher,
   MemoryLogger,
 } from "../support/fakes.js";
 
@@ -15,6 +16,7 @@ const config: IngestConfig = {
   kapsoWebhookSecret: "test-secret",
   mediaBucket: "test-bucket",
   tableName: "test-table",
+  eventBusName: "test-bus",
   mediaMaxBytes: 16 * 1024 * 1024,
 };
 
@@ -22,7 +24,8 @@ function build(options: { logRawPayload?: boolean } = {}) {
   const logger = new MemoryLogger();
   const repository = new FakeInboundMessageRepository();
   const mediaRepository = new FakeInboundMediaRepository();
-  const receiveInboundMessage = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
+  const publisher = new FakeNoteEventPublisher();
+  const receiveInboundMessage = new ReceiveInboundMessageService(repository, mediaRepository, publisher, logger, {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });
@@ -31,6 +34,7 @@ function build(options: { logRawPayload?: boolean } = {}) {
     app: createApp({ config, logger, receiveInboundMessage }),
     repository,
     mediaRepository,
+    publisher,
     logger,
   };
 }

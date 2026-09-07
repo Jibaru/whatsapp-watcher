@@ -18,9 +18,26 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Bucket"
     }
+    "NoteProcessingDlq": {
+      "type": "sst.aws.Queue"
+      "url": string
+    }
+    "NoteProcessingQueue": {
+      "type": "sst.aws.Queue"
+      "url": string
+    }
+    "ProcessorFunction": {
+      "name": string
+      "type": "sst.aws.Function"
+    }
     "WatcherApi": {
       "type": "sst.aws.ApiGatewayV2"
       "url": string
+    }
+    "WatcherBus": {
+      "arn": string
+      "name": string
+      "type": "sst.aws.Bus"
     }
     "WatcherTable": {
       "name": string
