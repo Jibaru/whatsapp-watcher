@@ -1,3 +1,4 @@
+import { hmacHex } from "@watcher/core";
 import { describe, expect, it } from "bun:test";
 import { createApp } from "../../src/app.js";
 import type { IngestConfig } from "../../src/config.js";
@@ -8,7 +9,6 @@ const config: IngestConfig = {
   stage: "test",
   isProduction: false,
   kapsoWebhookSecret: "test-secret",
-  kapsoSecretHeader: "x-kapso-webhook-secret",
 };
 
 function build() {
@@ -22,15 +22,18 @@ function build() {
   return { app: createApp({ config, logger, receiveInboundMessage }), repository, logger };
 }
 
-function post(body: unknown, headers: Record<string, string> = {}) {
-  return new Request("http://localhost/webhooks/kapso", {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
-}
+function post(payload: unknown, options: { signature?: string | null } = {}) {
+  const body = JSON.stringify(payload);
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const signature =
+    options.signature === undefined ? hmacHex(config.kapsoWebhookSecret, body) : options.signature;
 
-const authorized = { "x-kapso-webhook-secret": "test-secret" };
+  if (signature !== null) {
+    headers["x-webhook-signature"] = signature;
+  }
+
+  return new Request("http://localhost/webhooks/kapso", { method: "POST", headers, body });
+}
 
 describe("ingest api", () => {
   it("answers the health check with the stage", async () => {
@@ -42,30 +45,47 @@ describe("ingest api", () => {
     expect(await response.json()).toEqual({ status: "ok", stage: "test" });
   });
 
-  it("rejects the webhook without the secret header and processes nothing", async () => {
+  it("rejects the webhook without a signature and processes nothing", async () => {
     const { app, repository, logger } = build();
 
-    const response = await app.request(post({ id: "wamid-1" }));
+    const response = await app.request(post({ id: "wamid-1" }, { signature: null }));
 
     expect(response.status).toBe(401);
     expect(repository.saved).toHaveLength(0);
     expect(logger.events()).toContain("webhook_unauthorized");
   });
 
-  it("rejects the webhook with a wrong secret", async () => {
+  it("rejects a signature computed with another secret", async () => {
     const { app, repository } = build();
+    const body = { id: "wamid-1" };
 
-    const response = await app.request(post({ id: "wamid-1" }, { "x-kapso-webhook-secret": "nope" }));
+    const response = await app.request(
+      post(body, { signature: hmacHex("another-secret", JSON.stringify(body)) }),
+    );
 
     expect(response.status).toBe(401);
     expect(repository.saved).toHaveLength(0);
   });
 
-  it("accepts a valid message and returns its id", async () => {
+  it("rejects a valid signature that belongs to a different body", async () => {
     const { app, repository } = build();
 
     const response = await app.request(
-      post({ id: "wamid-1", from: "+51999888777", type: "text", text: "hola" }, authorized),
+      post(
+        { id: "wamid-1", text: "tampered" },
+        { signature: hmacHex(config.kapsoWebhookSecret, JSON.stringify({ id: "wamid-1" })) },
+      ),
+    );
+
+    expect(response.status).toBe(401);
+    expect(repository.saved).toHaveLength(0);
+  });
+
+  it("accepts a correctly signed message and returns its id", async () => {
+    const { app, repository } = build();
+
+    const response = await app.request(
+      post({ id: "wamid-1", from: "+51999888777", type: "text", text: "hola" }),
     );
 
     expect(response.status).toBe(200);
@@ -81,7 +101,7 @@ describe("ingest api", () => {
     const { app, repository } = build();
 
     const response = await app.request(
-      post({ id: "wamid-2", from: "+51999888777", unexpected_field: { nested: true } }, authorized),
+      post({ id: "wamid-2", from: "+51999888777", unexpected_field: { nested: true } }),
     );
 
     expect(response.status).toBe(200);
@@ -91,7 +111,7 @@ describe("ingest api", () => {
   it("returns 400 when a known field has the wrong type", async () => {
     const { app, repository } = build();
 
-    const response = await app.request(post({ id: 123 }, authorized));
+    const response = await app.request(post({ id: 123 }));
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_payload" });
