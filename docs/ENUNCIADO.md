@@ -106,7 +106,7 @@ flowchart LR
 | 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.processed`, `alarm.due`, `note.failed`. Además reglas `schedule` para el evaluador. | Permite añadir consumidores nuevos sin tocar el productor. |
 | 5 | **SQS `note-processing` (+ DLQ)** | Buffer y reintentos del trabajo pesado. | `maxReceiveCount = 3`; `visibilityTimeout ≥ 6×` el timeout de la Lambda. |
 | 6 | **Lambda `processor`** | Leer el media desde S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
-| 7 | **Amazon Bedrock** | Transcribir audio / describir imagen, clasificar y extraer campos estructurados (JSON con schema). | Por defecto `claude-sonnet-5` vía Converse API con *tool use* para forzar el schema. |
+| 7 | **Amazon Bedrock** | Describir imagen, clasificar y extraer campos estructurados. | `global.anthropic.claude-sonnet-4-6` vía Converse API con *tool use* forzado (`BEDROCK_MODEL_ID` lo cambia). **Requisito de cuenta**: hay que enviar el *Anthropic use case details form* en la consola de Bedrock; sin eso todo `Converse` responde `ResourceNotFoundException`. |
 | 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: transición a clases más baratas a los 30 días, **sin expiración**. |
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
 | 10 | **Lambda `evaluator`** | Cada 5 min: evaluar reglas de alarma por estado/umbral y barrer recordatorios vencidos no enviados. | Idempotente por `alarmId#dueAtEpoch`. |
@@ -218,6 +218,23 @@ media son el histórico del usuario y se conservan. Dos consecuencias:
 - `NoteStatusIndex` — `gsi2pk = STATUS#<status>`, `gsi2sk = <createdAtEpoch>` → notas fallidas / abiertas.
 - `EntityTypeIndex` — `gsi3pk = <entityType>`, `gsi3sk = <createdAtEpoch>` → administración y métricas.
 
+### 7.1 Errores como parte del proceso
+
+Toda la tubería es *at-least-once*, así que un error solo tiene que responder una pregunta: **¿reintentarlo
+puede cambiar el resultado?** De ahí salen dos clases en `@watcher/core`:
+
+| Clase | Ejemplos | Qué hace el handler |
+|---|---|---|
+| `TransientError` | throttling del modelo, timeout, dependencia caída | Reporta el registro a SQS → reintento → DLQ tras 3 |
+| `PermanentError` | payload ilegible, media no soportado, modelo sin acceso | **Confirma el mensaje**: reintentar solo gastaría intentos y ensuciaría la DLQ |
+
+Un error desconocido se trata como transitorio: acaba en la DLQ, donde lo ve una persona. Peor sería
+tragárselo. Los wrappers conservan la causa original (`describeError`), porque un `ModelUnavailableError`
+sin su causa no dice nada.
+
+**Pendiente**: cuando un error permanente descarta un mensaje, el ítem crudo debería quedar
+`status = FAILED` y emitirse `note.failed` (§6.4). Hoy solo se registra y se confirma.
+
 ## 8. Observabilidad y alarmas (CloudWatch → SNS → correo)
 
 ### 8.1 Alarmas técnicas
@@ -299,7 +316,7 @@ media son el histórico del usuario y se conservan. Dos consecuencias:
 
 | # | Tema | Opciones | Recomendación |
 |---|---|---|---|
-| 1 | **Audio → texto** | (a) modelo multimodal de Bedrock que acepte audio; (b) Amazon Transcribe y luego Bedrock sobre el texto. | Verificar en la región elegida qué modelo de Bedrock acepta audio; si ninguno, añadir Transcribe como paso previo dentro de `processor`. |
+| 1 | ~~**Audio → texto**~~ **RESUELTO** | Comprobado en `us-east-1`: **ningún modelo Claude acepta `AUDIO`** (el único con esa modalidad es un modelo de *embeddings*). | **Hace falta Amazon Transcribe** como paso previo dentro de `processor`. Hasta entonces, una nota de voz lanza `UnsupportedMediaError` (permanente) y no se procesa. |
 | 2 | **API Gateway vs Function URL** | JohoFit usa Function URL; aquí se pide API Gateway. | API Gateway HTTP API: aporta throttling, access logs y métricas que las alarmas necesitan. |
 | 3 | **EventBridge Scheduler vs barrido** | Scheduler one-time es exacto pero crea un recurso por recordatorio (límites de cuenta). | Scheduler como mecanismo principal + barrido cada 5 min como red de seguridad. |
 | 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado. | Registrar en KAPSO un template de recordatorio antes de la demo. |

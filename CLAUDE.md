@@ -12,7 +12,8 @@ packages/
   core/     @watcher/core     logger, hash, helpers de entorno
   ingest/   @watcher/ingest   lambda del webhook de KAPSO
   outbox/   @watcher/outbox   lambda del stream de DynamoDB al bus
-  processor/ @watcher/processor lambda que consume de SQS
+  processor/ @watcher/processor lambda que consume de SQS y llama a Bedrock
+  notifier/ @watcher/notifier  lambda que avisa al usuario por WhatsApp
 infra/      un fichero por lambda (api.ts, ingest.ts), importados desde sst.config.ts
 integration/ tests contra el stage dev real (fuera de packages: cruzan varios modulos)
 docs/       enunciado y diagrama
@@ -52,6 +53,10 @@ handler     HTTP, formato del proveedor, validación Zod → construye el DTO de
   stream de DynamoDB (`outbox`), así que lo que se anuncia es exactamente lo que se confirmó.
 - El contrato de un evento entre lambdas vive en `@watcher/core` (`events.ts`): el productor lo
   construye y el consumidor lo valida con el mismo esquema, para que no se separen.
+- **Errores de dominio**: todo error extiende `TransientError` o `PermanentError` de `@watcher/core`. El
+  handler reintenta solo los transitorios (`isRetryable`); un permanente se confirma para no gastar
+  intentos ni ensuciar la DLQ. Un error desconocido cuenta como transitorio. Al envolver un error, se
+  conserva la causa.
 - Fail-closed: si falta configuración, se lanza en el arranque en frío, no a mitad de petición.
 - Commits: conventional commits, en inglés, sin `Co-Authored-By` ni trailers.
 

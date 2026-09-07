@@ -1,3 +1,5 @@
+import { PermanentError } from "@watcher/core";
+
 export interface StoreMediaCommand {
   readonly sourceUrl: string;
   readonly messageId: string;
@@ -15,12 +17,12 @@ export interface InboundMediaRepository {
   store(command: StoreMediaCommand): Promise<StoredMedia>;
 }
 
-export class MediaTooLargeError extends Error {
+/** Retrying cannot shrink the file, so the note is kept and the media dropped. */
+export class MediaTooLargeError extends PermanentError {
   constructor(
     readonly sizeBytes: number,
     readonly maxBytes: number,
   ) {
-    super(`Media of ${sizeBytes} bytes exceeds the ${maxBytes} byte cap`);
-    this.name = "MediaTooLargeError";
+    super("media_too_large", `Media of ${sizeBytes} bytes exceeds the ${maxBytes} byte cap`);
   }
 }

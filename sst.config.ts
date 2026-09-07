@@ -27,10 +27,11 @@ export default $config({
 
   async run() {
     const { api } = await import("./infra/api");
-    const { bus, noteProcessingQueue } = await import("./infra/events");
+    const { bus, noteProcessingQueue, alarmDispatchQueue } = await import("./infra/events");
     const { ingest } = await import("./infra/ingest");
     const { outbox } = await import("./infra/outbox");
     const { processor } = await import("./infra/processor");
+    const { notifier } = await import("./infra/notifier");
 
     return {
       api: api.url,
@@ -38,8 +39,10 @@ export default $config({
       ingestFunction: ingest.name,
       outboxFunction: outbox.name,
       processorFunction: processor.name,
+      notifierFunction: notifier.name,
       bus: bus.name,
       queue: noteProcessingQueue.url,
+      dispatchQueue: alarmDispatchQueue.url,
     };
   },
 });

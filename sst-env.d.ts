@@ -6,6 +6,14 @@
 
 declare module "sst" {
   export interface Resource {
+    "AlarmDispatchDlq": {
+      "type": "sst.aws.Queue"
+      "url": string
+    }
+    "AlarmDispatchQueue": {
+      "type": "sst.aws.Queue"
+      "url": string
+    }
     "IngestFunction": {
       "name": string
       "type": "sst.aws.Function"
@@ -25,6 +33,10 @@ declare module "sst" {
     "NoteProcessingQueue": {
       "type": "sst.aws.Queue"
       "url": string
+    }
+    "NotifierFunction": {
+      "name": string
+      "type": "sst.aws.Function"
     }
     "OutboxFunction": {
       "name": string

@@ -11,3 +11,14 @@ export const noteProcessingQueue = new sst.aws.Queue("NoteProcessingQueue", {
 bus.subscribeQueue("NoteReceived", noteProcessingQueue, {
   pattern: { source: ["watcher.ingest"], detailType: ["note.received"] },
 });
+
+export const alarmDispatchDlq = new sst.aws.Queue("AlarmDispatchDlq");
+
+export const alarmDispatchQueue = new sst.aws.Queue("AlarmDispatchQueue", {
+  visibilityTimeout: "3 minutes",
+  dlq: { queue: alarmDispatchDlq.arn, retry: 3 },
+});
+
+bus.subscribeQueue("NoteProcessed", alarmDispatchQueue, {
+  pattern: { source: ["watcher.processor"], detailType: ["note.processed"] },
+});

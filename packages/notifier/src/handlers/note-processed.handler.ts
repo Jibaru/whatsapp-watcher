@@ -1,15 +1,15 @@
 import {
   describeError,
-  EventBridgeEnvelopeSchema,
   isRetryable,
+  NoteProcessedEnvelopeSchema,
   PermanentError,
   runWithLogContext,
   type Logger,
 } from "@watcher/core";
 import type { SQSBatchResponse, SQSEvent, SQSRecord } from "aws-lambda";
-import type { ProcessNoteService } from "../services/process-note.service.js";
+import type { NotifyNoteService } from "../services/notify-note.service.js";
 
-export function makeNoteReceivedHandler(service: ProcessNoteService, logger: Logger) {
+export function makeNoteProcessedHandler(service: NotifyNoteService, logger: Logger) {
   return async (event: SQSEvent): Promise<SQSBatchResponse> => {
     const batchItemFailures: { itemIdentifier: string }[] = [];
 
@@ -20,8 +20,6 @@ export function makeNoteReceivedHandler(service: ProcessNoteService, logger: Log
         if (isRetryable(error)) {
           batchItemFailures.push({ itemIdentifier: record.messageId });
         }
-        // A permanent error is acknowledged on purpose: retrying it would only spend three
-        // attempts to reach the same place and bury the DLQ under noise.
       }
     }
 
@@ -31,13 +29,12 @@ export function makeNoteReceivedHandler(service: ProcessNoteService, logger: Log
 
 async function handleRecord(
   record: SQSRecord,
-  service: ProcessNoteService,
+  service: NotifyNoteService,
   logger: Logger,
 ): Promise<void> {
-  const parsed = EventBridgeEnvelopeSchema.safeParse(JSON.parse(record.body));
+  const parsed = NoteProcessedEnvelopeSchema.safeParse(JSON.parse(record.body));
 
   if (!parsed.success) {
-    // Nothing downstream can fix a body we cannot read, so it is not worth a retry.
     logger.error("note_event_unreadable", { sqsMessageId: record.messageId });
 
     throw new PermanentError("note_event_unreadable", "The queued event does not match the contract");
@@ -53,12 +50,9 @@ async function handleRecord(
     },
     async () => {
       try {
-        await service.execute({
-          note,
-          receiveCount: Number(record.attributes.ApproximateReceiveCount ?? "1"),
-        });
+        await service.execute({ note });
       } catch (error) {
-        logger.error("note_processing_failed", {
+        logger.error("notification_failed", {
           ...describeError(error),
           sqsMessageId: record.messageId,
         });
