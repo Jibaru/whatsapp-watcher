@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { Logger } from "@watcher/core";
+import { PhoneNumber, type Logger } from "@watcher/core";
 import { InboundMessage, type InboundMessageKind } from "../domain/inbound-message.js";
 import type { InboundMessageRepository } from "../repositories/inbound-message.repository.js";
 
 export interface ReceiveInboundMessageInput {
   readonly messageId?: string;
   readonly from?: string;
+  /** ISO alpha-2 hint; KAPSO carries it in the from_user_id prefix. */
+  readonly fromCountryHint?: string;
   readonly kind?: string;
   readonly text?: string;
   readonly mediaUrl?: string;
@@ -55,9 +57,22 @@ export class ReceiveInboundMessageService {
       });
     }
 
+    const rawFrom = isBlank(input.from) ? undefined : input.from!.trim();
+    const phone =
+      rawFrom === undefined ? undefined : PhoneNumber.parse(rawFrom, input.fromCountryHint);
+
+    if (rawFrom !== undefined && phone === undefined) {
+      this.logger.warn("phone_not_normalized", {
+        hasCountryHint: !isBlank(input.fromCountryHint),
+        rawLength: rawFrom.length,
+      });
+    }
+
     const message = InboundMessage.create({
       messageId: generatedMessageId ? this.newId() : input.messageId!.trim(),
-      from: isBlank(input.from) ? UNKNOWN_SENDER : input.from!.trim(),
+      from: phone?.e164 ?? rawFrom ?? UNKNOWN_SENDER,
+      fromIsE164: phone !== undefined,
+      fromCountry: phone?.country,
       kind: normalizeKind(input.kind),
       receivedAt: input.receivedAt,
       text: input.text,

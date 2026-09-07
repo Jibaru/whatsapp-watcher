@@ -190,6 +190,12 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 | Recordatorio | `USER#<phoneE164>` | `ALARM#<dueAtEpoch>#<alarmId>` | `noteId`, `status` (`PENDING`/`SENT`/`FAILED`), `scheduleName` |
 | Regla | `USER#<phoneE164>` | `RULE#<ruleId>` | `kind`, `params`, `enabled` |
 
+**Teléfono normalizado.** La `pk` usa E.164, pero WhatsApp no siempre manda el prefijo: en el ejemplo de
+EE. UU. llega `16315551181` y en uno peruano llega `982705024`. El país sale del prefijo ISO de
+`message.from_user_id` (`PE.1618166519838886`) y la normalización la hace `libphonenumber-js`. Si no se
+puede normalizar, se guarda el valor tal cual, se marca `fromIsE164 = false` y se registra
+`phone_not_normalized`: nunca se inventa un prefijo.
+
 **Nada caduca.** No hay TTL en ninguna entidad ni expiración en el bucket: una nota, su evento crudo y su
 media son el histórico del usuario y se conservan. Dos consecuencias:
 

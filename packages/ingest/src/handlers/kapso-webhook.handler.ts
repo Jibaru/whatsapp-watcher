@@ -24,6 +24,7 @@ const KapsoMessageSchema = z.looseObject({
   id: z.string().optional(),
   type: z.string().optional(),
   from: z.string().optional(),
+  from_user_id: z.string().optional(),
   text: z.looseObject({ body: z.string().optional() }).optional(),
   kapso: KapsoBlockSchema.optional(),
 });
@@ -31,7 +32,12 @@ const KapsoMessageSchema = z.looseObject({
 export const KapsoWebhookBodySchema = z
   .looseObject({
     message: KapsoMessageSchema.optional(),
-    conversation: z.looseObject({ phone_number: z.string().optional() }).optional(),
+    conversation: z
+      .looseObject({
+        phone_number: z.string().optional(),
+        business_scoped_user_id: z.string().optional(),
+      })
+      .optional(),
   })
   .openapi("KapsoWebhookBody");
 
@@ -63,6 +69,13 @@ export const kapsoWebhookRoute = createRoute({
   },
 });
 
+/** from_user_id looks like "PE.1618166519838886": the prefix is the ISO alpha-2 country. */
+function countryFromUserId(value: string | undefined): string | undefined {
+  const prefix = value?.split(".")[0];
+
+  return prefix !== undefined && /^[A-Za-z]{2}$/.test(prefix) ? prefix : undefined;
+}
+
 export function makeKapsoWebhookHandler(
   service: ReceiveInboundMessageService,
   clock: () => Date = () => new Date(),
@@ -75,6 +88,9 @@ export function makeKapsoWebhookHandler(
     const result = await service.execute({
       messageId: message?.id,
       from: message?.from ?? body.conversation?.phone_number,
+      fromCountryHint: countryFromUserId(
+        message?.from_user_id ?? body.conversation?.business_scoped_user_id,
+      ),
       kind: message?.type,
       // kapso.content is a synthesized summary for media ("caption Image attached (...) URL: ..."),
       // so the caption is the only faithful text on those messages.

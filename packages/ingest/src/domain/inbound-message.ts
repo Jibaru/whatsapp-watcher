@@ -13,6 +13,8 @@ export interface InboundMessageProps {
   readonly from: string;
   readonly kind: InboundMessageKind;
   readonly receivedAt: Date;
+  readonly fromIsE164?: boolean;
+  readonly fromCountry?: string;
   readonly text?: string;
   readonly media?: InboundMedia;
 }
@@ -22,6 +24,8 @@ export class InboundMessage {
   readonly from: string;
   readonly kind: InboundMessageKind;
   readonly receivedAt: Date;
+  readonly fromIsE164: boolean;
+  readonly fromCountry?: string;
   readonly text?: string;
   readonly media?: InboundMedia;
 
@@ -30,6 +34,8 @@ export class InboundMessage {
     this.from = props.from;
     this.kind = props.kind;
     this.receivedAt = props.receivedAt;
+    this.fromIsE164 = props.fromIsE164 ?? false;
+    this.fromCountry = props.fromCountry;
     this.text = props.text;
     this.media = props.media;
   }
@@ -59,6 +65,8 @@ export class InboundMessage {
       messageId: this.messageId,
       fromHash: hashIdentifier(this.from),
       kind: this.kind,
+      fromIsE164: this.fromIsE164,
+      fromCountry: this.fromCountry,
       hasMedia: this.hasMedia(),
       mediaMimeType: this.media?.mimeType,
       mediaSizeBytes: this.media?.sizeBytes,

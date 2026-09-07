@@ -43,6 +43,7 @@ const imageMessage = {
     id: "wamid.HBgTUEUuMTYx",
     type: "image",
     from: "982705024",
+    from_user_id: "PE.1618166519838886",
     kapso: {
       has_media: true,
       media_url: "https://app.kapso.example/blobs/image_1a1f.jpeg",
@@ -150,14 +151,37 @@ describe("ingest api", () => {
     expect(saved?.media?.sizeBytes).toBe(75681);
   });
 
-  it("falls back to the conversation phone when the message carries no sender", async () => {
+  it("normalizes the sender to E.164 using the country in from_user_id", async () => {
+    const { app, repository } = build();
+
+    await app.request(post(imageMessage));
+
+    expect(repository.saved[0]?.from).toBe("+51982705024");
+    expect(repository.saved[0]?.fromIsE164).toBe(true);
+    expect(repository.saved[0]?.fromCountry).toBe("PE");
+  });
+
+  it("falls back to the conversation phone and its country hint", async () => {
     const { app, repository } = build();
 
     await app.request(
-      post({ message: { id: "wamid.1" }, conversation: { phone_number: "982705024" } }),
+      post({
+        message: { id: "wamid.1" },
+        conversation: { phone_number: "982705024", business_scoped_user_id: "PE.161816651983" },
+      }),
     );
 
+    expect(repository.saved[0]?.from).toBe("+51982705024");
+  });
+
+  it("keeps the raw number and warns when it cannot be normalized", async () => {
+    const { app, repository, logger } = build();
+
+    await app.request(post({ message: { id: "wamid.2", from: "982705024" } }));
+
     expect(repository.saved[0]?.from).toBe("982705024");
+    expect(repository.saved[0]?.fromIsE164).toBe(false);
+    expect(logger.events()).toContain("phone_not_normalized");
   });
 
   it("accepts unknown fields: the payload carries more than we map", async () => {
