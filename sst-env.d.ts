@@ -54,6 +54,14 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "OpsAlerts": {
+      "arn": string
+      "type": "sst.aws.SnsTopic"
+    }
+    "OpsEmails": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "OutboxFunction": {
       "name": string
       "type": "sst.aws.Function"
