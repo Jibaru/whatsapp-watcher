@@ -75,6 +75,7 @@ flowchart LR
   S3 -->|lee media| L2
   L2 -->|Converse| BR[Amazon Bedrock]
   L2 -->|nota estructurada| DDB
+  L2 -->|note.processed| EB
   L2 -->|schedule one-time| SCH[EventBridge Scheduler]
   EB -->|rule schedule 5 min| L3[Lambda evaluator]
   L3 --> SQS2[SQS alarm-dispatch]
@@ -96,12 +97,12 @@ flowchart LR
 |---|---|---|---|
 | 1 | **API Gateway (HTTP API)** | Único punto de entrada público. Rutas `POST /webhooks/kapso` y `GET /health`. | Throttling por ruta; access logs a CloudWatch. |
 | 2 | **Lambda `ingest`** | Verificar el secret/firma de KAPSO, validar payload con Zod, **descargar el media y guardarlo en S3**, escribir el evento crudo en DynamoDB de forma **idempotente**, publicar en EventBridge y responder `200`. | Guarda el media porque la URL de KAPSO caduca; nunca llama a Bedrock. Presupuesto: < 5 s con media, < 1 s sin él. |
-| 3 | **DynamoDB `WatcherMain`** | Single-table: evento crudo, nota estructurada, recordatorio, regla de alarma, registro de idempotencia. | Stream `NEW_AND_OLD_IMAGES` + TTL en `expiresAtEpoch`. |
+| 3 | **DynamoDB `WatcherMain`** | Single-table: evento crudo, nota estructurada, recordatorio y regla de alarma. | Stream `NEW_AND_OLD_IMAGES`. **Sin TTL**: el histórico no caduca (§7). |
 | 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.processed`, `alarm.due`, `note.failed`. Además reglas `schedule` para el evaluador. | Permite añadir consumidores nuevos sin tocar el productor. |
 | 5 | **SQS `note-processing` (+ DLQ)** | Buffer y reintentos del trabajo pesado. | `maxReceiveCount = 3`; `visibilityTimeout ≥ 6×` el timeout de la Lambda. |
 | 6 | **Lambda `processor`** | Leer el media desde S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
 | 7 | **Amazon Bedrock** | Transcribir audio / describir imagen, clasificar y extraer campos estructurados (JSON con schema). | Por defecto `claude-sonnet-5` vía Converse API con *tool use* para forzar el schema. |
-| 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: IA a 30 días, expiración configurable. |
+| 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: transición a clases más baratas a los 30 días, **sin expiración**. |
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
 | 10 | **Lambda `evaluator`** | Cada 5 min: evaluar reglas de alarma por estado/umbral y barrer recordatorios vencidos no enviados. | Idempotente por `alarmId#dueAtEpoch`. |
 | 11 | **SQS `alarm-dispatch` (+ DLQ)** | Cola de salida: garantiza que un envío fallido a KAPSO se reintenta. | Misma política de redrive. |
@@ -136,11 +137,19 @@ flowchart LR
    - emite `note.processed`.
 9. `notifier` confirma al usuario: "Anotado ✅ — te aviso mañana 10:00".
 
-### 6.2 Flujo de alarma programada
+### 6.2 Flujo de salida (confirmación y alarma programada)
 
-1. Llega la hora → EventBridge Scheduler dispara → mensaje a `alarm-dispatch`.
-2. `notifier` lee la alarma, comprueba que sigue `PENDING` (idempotencia) y envía por KAPSO.
-3. Marca `SENT` con `sentAtEpoch`. Si KAPSO devuelve error transitorio → excepción → reintento SQS → DLQ.
+Todo lo que sale hacia el usuario pasa por la misma cola, `alarm-dispatch`, y por el mismo consumidor. El bus
+se reutiliza como ruteador: una regla lleva `note.processed` y `alarm.due` a esa cola.
+
+1. **Confirmación**: `processor` emite `note.processed` → regla → `alarm-dispatch` → `notifier` responde
+   "Anotado ✅".
+2. **Recordatorio**: llega la hora → EventBridge Scheduler emite `alarm.due` → misma regla → misma cola.
+3. `notifier` lee el mensaje, comprueba que la alarma sigue `PENDING` (idempotencia) y envía por KAPSO.
+4. Marca `SENT` con `sentAtEpoch`. Si KAPSO devuelve error transitorio → excepción → reintento SQS → **DLQ de
+   salida**, con su propia alarma en CloudWatch.
+
+La cola existe justo para esto: sin ella, un fallo de KAPSO al enviar se perdería en el aire.
 
 ### 6.3 Flujo de alarma por regla
 
@@ -173,11 +182,18 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 
 | Entidad | `pk` | `sk` | Atributos clave |
 |---|---|---|---|
-| Evento crudo | `USER#<phoneE164>` | `RAW#<messageId>` | `payload`, `receivedAtEpoch`, `expiresAtEpoch` (TTL 30 d) |
-| Idempotencia | `IDEMP#<messageId>` | `IDEMP` | `expiresAtEpoch` (TTL 7 d) |
+| Evento crudo | `USER#<phoneE164>` | `RAW#<messageId>` | `payload`, `mediaKey`, `receivedAtEpoch` |
 | Nota | `USER#<phoneE164>` | `NOTE#<createdAtEpoch>#<noteId>` | `type`, `title`, `summary`, `tags[]`, `priority`, `status`, `mediaKey`, `modelId`, `confidence` |
 | Recordatorio | `USER#<phoneE164>` | `ALARM#<dueAtEpoch>#<alarmId>` | `noteId`, `status` (`PENDING`/`SENT`/`FAILED`), `scheduleName` |
 | Regla | `USER#<phoneE164>` | `RULE#<ruleId>` | `kind`, `params`, `enabled` |
+
+**Nada caduca.** No hay TTL en ninguna entidad ni expiración en el bucket: una nota, su evento crudo y su
+media son el histórico del usuario y se conservan. Dos consecuencias:
+
+- El propio ítem `RAW#<messageId>` es la guardia de idempotencia (`attribute_not_exists`), así que **no hace
+  falta una entidad `IDEMP` aparte**: existía solo para ser un marcador de vida corta.
+- El borrado es explícito (a petición del usuario o por GDPR), nunca automático. Para no crecer sin control,
+  el evento crudo guarda el payload, no los bytes del media.
 
 **GSIs**
 

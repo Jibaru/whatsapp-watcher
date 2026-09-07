@@ -41,6 +41,8 @@
         "focus": [
           "queue",
           "dlq",
+          "dispatch",
+          "dispatch-dlq",
           "alarms",
           "sns",
           "correo"
@@ -52,6 +54,7 @@
         "label": "Alarma al usuario",
         "focus": [
           "bus",
+          "dispatch",
           "notifier",
           "kapso",
           "usuario"
@@ -173,7 +176,7 @@
         150,
         60
       ],
-      "tag": "single-table + TTL"
+      "tag": "single-table, sin TTL"
     },
     {
       "id": "processor",
@@ -273,27 +276,37 @@
         150,
         60
       ]
+    },
+    {
+      "id": "dispatch",
+      "type": "messagebus",
+      "label": "SQS",
+      "sublabel": "alarm-dispatch",
+      "pos": [
+        275,
+        515
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "dispatch-dlq",
+      "type": "messagebus",
+      "label": "SQS DLQ",
+      "sublabel": "alarmas sin enviar",
+      "pos": [
+        500,
+        515
+      ],
+      "size": [
+        150,
+        60
+      ]
     }
   ],
   "boundaries": [
-    {
-      "kind": "region",
-      "label": "AWS · stage dev | production",
-      "wraps": [
-        "apigw",
-        "ingest",
-        "bus",
-        "queue",
-        "dlq",
-        "dynamo",
-        "processor",
-        "alarms",
-        "notifier",
-        "media",
-        "bedrock",
-        "sns"
-      ]
-    },
     {
       "kind": "security-group",
       "label": "webhook verificado con secret KAPSO",
@@ -364,12 +377,21 @@
       "variant": "emphasis"
     },
     {
+      "id": "emite-procesado",
+      "from": "processor",
+      "to": "bus",
+      "label": "note.processed"
+    },
+    {
       "id": "guarda-nota",
       "from": "processor",
       "to": "dynamo",
       "label": "nota estructurada",
       "variant": "emphasis",
-      "labelDy": -58
+      "labelAt": [
+        830,
+        190
+      ]
     },
     {
       "id": "guarda-media",
@@ -433,8 +455,8 @@
     {
       "id": "recordatorio-vencido",
       "from": "bus",
-      "to": "notifier",
-      "label": "alarm.due",
+      "to": "dispatch",
+      "label": "note.processed · alarm.due",
       "fromSide": "top",
       "toSide": "left",
       "via": [
@@ -448,12 +470,35 @@
         ],
         [
           22,
-          400
+          545
         ]
       ],
       "labelAt": [
-        140,
-        380
+        420,
+        48
+      ]
+    },
+    {
+      "id": "entrega-alarma",
+      "from": "dispatch",
+      "to": "notifier"
+    },
+    {
+      "id": "redrive-salida",
+      "from": "dispatch",
+      "to": "dispatch-dlq",
+      "label": "3 intentos",
+      "variant": "dashed"
+    },
+    {
+      "id": "dlq-salida-alarma",
+      "from": "dispatch-dlq",
+      "to": "alarms",
+      "label": "DLQ no vacía",
+      "variant": "security",
+      "labelAt": [
+        1151,
+        478
       ]
     },
     {
@@ -488,20 +533,20 @@
     },
     {
       "dot": "emerald",
-      "title": "Proceso asíncrono",
+      "title": "Proceso y datos",
       "items": [
-        "EventBridge rutea y SQS absorbe picos y reintentos",
         "processor lee el media de S3 y pide a Bedrock un JSON con schema",
+        "Nada caduca: notas, eventos y media se conservan sin TTL",
         "El recordatorio se programa con EventBridge Scheduler"
       ]
     },
     {
       "dot": "rose",
-      "title": "Fallo y salida",
+      "title": "Salida y fallo",
       "items": [
-        "maxReceiveCount 3 y luego DLQ: ningún mensaje se pierde",
-        "DLQ no vacía dispara alarma de CloudWatch y correo por SNS",
-        "En dev el notifier solo envía a la allowlist: si falta, no envía"
+        "El aviso sale por EventBridge a alarm-dispatch y de ahí al notifier",
+        "Tres intentos y a la DLQ en ambas colas: ningún mensaje se pierde",
+        "DLQ no vacía dispara alarma y correo; en dev, allowlist fail-closed"
       ]
     }
   ]
