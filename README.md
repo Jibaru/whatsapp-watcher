@@ -45,6 +45,7 @@ packages/ingest/     KAPSO webhook
 packages/outbox/     DynamoDB stream to EventBridge
 packages/processor/  OpenAI analysis
 packages/notifier/   WhatsApp delivery
+packages/evaluator/  five minute sweep for reminders the scheduler missed
 infra/               one file per lambda, imported from sst.config.ts
 integration/         tests against the deployed dev stage, one file per behaviour
 docs/                design document and diagrams
@@ -108,8 +109,9 @@ healthy and when it has never seen a datapoint, and side by side the difference 
   The code path is there and tested: on Meta's code 131047 the sender retries the same reminder as
   a template with a single body variable. It stays inactive until `KapsoReminderTemplate` names an
   approved template, so today a next-day reminder still fails.
-- Rule based alarms (silence for N days, a daily digest of overdue notes) need the evaluator and the
-  AlarmDueIndex GSI. The reminder items already carry the index attributes.
+- Rule based alarms (silence for N days, a daily digest of overdue notes) are not built. Evaluating
+  rules before there is any way to create one would be a machine with no input; the sweep that the
+  evaluator does today needs no rules.
 - Replies always go to the full international number. A national one lets WhatsApp fill in the
   country of the sending account, which once delivered a note to a stranger in another country, so
   the sandbox test number must be registered with its country code.

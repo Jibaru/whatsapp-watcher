@@ -18,6 +18,10 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "EvaluatorFunction": {
+      "name": string
+      "type": "sst.aws.Function"
+    }
     "IngestFunction": {
       "name": string
       "type": "sst.aws.Function"

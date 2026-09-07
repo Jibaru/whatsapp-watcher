@@ -5,6 +5,7 @@ import {
   noteProcessingDlq,
   noteProcessingQueue,
 } from "./events";
+import { evaluator } from "./evaluator";
 import { ingest } from "./ingest";
 import { notifier } from "./notifier";
 import { outbox } from "./outbox";
@@ -61,6 +62,7 @@ const lambdas = [
   { key: "Outbox", fn: outbox, timeoutMs: 30_000 },
   { key: "Processor", fn: processor, timeoutMs: 30_000 },
   { key: "Notifier", fn: notifier, timeoutMs: 30_000 },
+  { key: "Evaluator", fn: evaluator, timeoutMs: 60_000 },
 ];
 
 // 1. A note ran out of attempts. The one alarm that always means work was lost.
@@ -224,6 +226,19 @@ alarm("NotesDropped", {
   comparisonOperator: "GreaterThanOrEqualToThreshold",
 });
 
+// 10c. The sweep is a safety net: if it keeps finding work, the scheduler is failing.
+alarm("RemindersSwept", {
+  alarmDescription: "The sweep had to rescue reminders the scheduler did not deliver",
+  namespace: NAMESPACE,
+  metricName: "reminders_swept",
+  dimensions: businessDimensions("evaluator"),
+  statistic: "Sum",
+  period: 900,
+  evaluationPeriods: 1,
+  threshold: 1,
+  comparisonOperator: "GreaterThanOrEqualToThreshold",
+});
+
 // 11. Notes are being produced but not reaching the user.
 alarm("AlarmsNotDelivered", {
   alarmDescription: "More than 10% of the notifications failed in the last hour",
@@ -288,6 +303,7 @@ const dashboardBody = $resolve({
   outboxName: outbox.name,
   processorName: processor.name,
   notifierName: notifier.name,
+  evaluatorName: evaluator.name,
   alarmArns: $resolve(created.map((metricAlarm) => metricAlarm.arn)),
 }).apply((ids) => {
   const stage = $app.stage;
@@ -389,8 +405,10 @@ const dashboardBody = $resolve({
         { annotations: { horizontal: [{ label: "umbral de alarma", value: 900 }] } },
       ),
 
-      metric(0, 12, 8, "Notas descartadas", [
-        business("notes_dropped", "processor", "descartadas por error permanente"),
+      metric(0, 12, 8, "Recordatorios rescatados", [
+        business("notes_dropped", "processor", "notas descartadas"),
+        business("reminders_swept", "evaluator", "rescatados por el barrido"),
+        business("reminders_expired", "evaluator", "expirados"),
       ]),
       metric(
         8,
@@ -425,6 +443,7 @@ const dashboardBody = $resolve({
         lambdaErrors(ids.outboxName, "outbox"),
         lambdaErrors(ids.processorName, "processor"),
         lambdaErrors(ids.notifierName, "notifier"),
+        lambdaErrors(ids.evaluatorName, "evaluator"),
       ]),
 
       {

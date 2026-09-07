@@ -109,7 +109,7 @@ flowchart LR
 | 7 | **OpenAI (vía AI SDK)** | Transcribir audio, describir imagen, clasificar y extraer campos estructurados. | `generateObject` con schema Zod y `transcribe` para las notas de voz. La API key va como SST Secret. Se cambió Bedrock por esto porque **una sola API cubre texto, imagen y audio** y no exige formularios de acceso por proveedor. El adaptador es una implementación de `NoteAnalyzer`: volver a Bedrock es cambiar una clase. |
 | 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: transición a clases más baratas a los 30 días, **sin expiración**. |
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
-| 10 | **Lambda `evaluator`** | Cada 5 min: evaluar reglas de alarma por estado/umbral y barrer recordatorios vencidos no enviados. | Idempotente por `alarmId#dueAtEpoch`. |
+| 10 | **Lambda `evaluator`** | Cada 5 min barre los recordatorios vencidos que siguen `PENDING` y los reencola. Es la red de seguridad bajo EventBridge Scheduler. | Lee `AlarmDueIndex`, nunca escanea. Ventana de gracia de 2 min para no competir con el Scheduler, y a partir de 1 h marca `EXPIRED`: sonar con horas de retraso es peor que no sonar. **Las reglas de §6.3 no están**: evaluarlas sin forma de crearlas sería una máquina sin entrada. |
 | 11 | **SQS `alarm-dispatch` (+ DLQ)** | Cola de salida: garantiza que un envío fallido a KAPSO se reintenta. | Misma política de redrive. |
 | 12 | **Lambda `notifier`** | Enviar el mensaje por KAPSO (template o free-form según la ventana de 24 h) y marcar la alarma como enviada. | **Fail-closed**: en `dev` solo destinatarios de la allowlist. |
 | 13 | **CloudWatch** | Logs JSON estructurados, métricas EMF de negocio, dashboard único del pipeline. | `correlationId = messageId` en todos los logs. |
@@ -228,7 +228,9 @@ media son el histórico del usuario y se conservan. Dos consecuencias:
 
 **GSIs**
 
-- `AlarmDueIndex` — `gsi1pk = ALARM#<status>`, `gsi1sk = <dueAtEpoch>` → barrido de vencidos.
+- `AlarmDueIndex` — `gsi1pk = ALARM#<status>`, `gsi1sk = <dueAtEpoch>` → barrido de vencidos. **Creado**.
+  Solo los recordatorios `PENDING` llevan estos atributos: al enviarse o expirar se quitan, así que el
+  índice contiene únicamente lo que queda por hacer y el barrido no paga por leer el histórico.
 - `NoteStatusIndex` — `gsi2pk = STATUS#<status>`, `gsi2sk = <createdAtEpoch>` → notas fallidas / abiertas.
 - `EntityTypeIndex` — `gsi3pk = <entityType>`, `gsi3sk = <createdAtEpoch>` → administración y métricas.
 

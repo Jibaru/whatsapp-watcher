@@ -32,6 +32,7 @@ export default $config({
     const { outbox } = await import("./infra/outbox");
     const { processor } = await import("./infra/processor");
     const { notifier } = await import("./infra/notifier");
+    const { evaluator } = await import("./infra/evaluator");
     const { dashboard, opsAlerts } = await import("./infra/monitoring");
 
     return {
@@ -41,6 +42,7 @@ export default $config({
       outboxFunction: outbox.name,
       processorFunction: processor.name,
       notifierFunction: notifier.name,
+      evaluatorFunction: evaluator.name,
       opsAlerts: opsAlerts.arn,
       dashboard: dashboard.dashboardName,
       bus: bus.name,

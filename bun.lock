@@ -25,6 +25,19 @@
         "zod": "^4.5.4",
       },
     },
+    "packages/evaluator": {
+      "name": "@watcher/evaluator",
+      "version": "0.1.0",
+      "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.1127.0",
+        "@aws-sdk/client-sqs": "^3.1127.0",
+        "@aws-sdk/lib-dynamodb": "^3.1127.0",
+        "@watcher/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/aws-lambda": "^8.10.163",
+      },
+    },
     "packages/ingest": {
       "name": "@watcher/ingest",
       "version": "0.1.0",
@@ -185,6 +198,8 @@
     "@vercel/oidc": ["@vercel/oidc@3.2.0", "", {}, "sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug=="],
 
     "@watcher/core": ["@watcher/core@workspace:packages/core"],
+
+    "@watcher/evaluator": ["@watcher/evaluator@workspace:packages/evaluator"],
 
     "@watcher/ingest": ["@watcher/ingest@workspace:packages/ingest"],
 
