@@ -22,6 +22,10 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Function"
     }
+    "KapsoApiKey": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "KapsoPhoneNumberId": {
       "type": "sst.sst.Secret"
       "value": string

@@ -4,6 +4,7 @@ import { InboundMessage } from "../../src/domain/inbound-message.js";
 const baseProps = {
   messageId: "wamid-1",
   from: "+51999888777",
+  fromAddress: "999888777",
   kind: "text" as const,
   receivedAt: new Date("2026-09-06T10:00:00.000Z"),
 };

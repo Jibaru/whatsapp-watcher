@@ -17,7 +17,8 @@ const note: NoteProcessedDetail = {
   noteId: "note-1",
   pk: "USER#+51999000001",
   sk: "RAW#wamid.1",
-  to: "+51999000001",
+  to: "999000001",
+  owner: "+51999000001",
   title: "Llamar al proveedor",
   summary: "Recordatorio para llamar al proveedor.",
   priority: "normal",
@@ -45,8 +46,16 @@ describe("NotifyNoteService", () => {
     const output = await service.execute({ note });
 
     expect(output).toEqual({ sent: true });
-    expect(sender.sent[0]?.to).toBe("+51999000001");
+    expect(sender.sent[0]?.to).toBe("999000001");
     expect(sender.sent[0]?.body).toContain("Llamar al proveedor");
+  });
+
+  it("accepts the allowlist written in either form", async () => {
+    const canonical = build({ allowedRecipients: ["+51999000001"] });
+    const asAddressed = build({ allowedRecipients: ["999000001"] });
+
+    expect((await canonical.service.execute({ note })).sent).toBe(true);
+    expect((await asAddressed.service.execute({ note })).sent).toBe(true);
   });
 
   it("sends nothing outside production when the allowlist is empty", async () => {

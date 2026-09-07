@@ -4,6 +4,7 @@ import { SourceMessageNotFoundError } from "../domain/errors.js";
 export interface SourceMessage {
   readonly messageId: string;
   readonly from: string;
+  readonly fromAddress: string;
   readonly kind: string;
   readonly text?: string;
   readonly mediaKey?: string;
@@ -33,6 +34,7 @@ export class DynamoInboundMessageReader implements InboundMessageReader {
     return {
       messageId: String(Item.messageId),
       from: String(Item.from),
+      fromAddress: asString(Item.fromAddress) ?? String(Item.from),
       kind: String(Item.kind ?? "unknown"),
       text: asString(Item.text),
       mediaKey: asString(Item.mediaKey),

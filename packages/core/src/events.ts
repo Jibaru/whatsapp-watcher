@@ -28,7 +28,10 @@ export const NoteProcessedDetailSchema = z.object({
   noteId: z.string(),
   pk: z.string(),
   sk: z.string(),
+  /** Delivery address as the provider expects it. */
   to: z.string(),
+  /** Canonical identity, for anything that has to recognise the user. */
+  owner: z.string(),
   title: z.string(),
   summary: z.string(),
   priority: z.string(),

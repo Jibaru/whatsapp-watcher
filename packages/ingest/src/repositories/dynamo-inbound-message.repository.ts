@@ -24,6 +24,7 @@ export class DynamoInboundMessageRepository implements InboundMessageRepository 
       conversationId: context?.conversationId,
       messageId: message.messageId,
       from: message.from,
+      fromAddress: message.fromAddress,
       fromIsE164: message.fromIsE164,
       fromCountry: message.fromCountry,
       kind: message.kind,

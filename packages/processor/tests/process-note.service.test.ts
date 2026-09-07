@@ -65,10 +65,20 @@ describe("ProcessNoteService", () => {
     expect(notes.saved[0]?.dueAt?.toISOString()).toBe("2026-09-08T15:00:00.000Z");
     expect(publisher.published[0]).toMatchObject({
       noteId: "note-1",
-      to: "+51999000001",
+      to: "999000001",
+      owner: "+51999000001",
       title: "Llamar al proveedor",
       dueAt: "2026-09-08T15:00:00.000Z",
     });
+  });
+
+  it("replies to the address the provider used, not to the canonical identity", async () => {
+    const { service, publisher } = build();
+
+    await service.execute({ note: detail, receiveCount: 1 });
+
+    expect(publisher.published[0]?.to).toBe("999000001");
+    expect(publisher.published[0]?.owner).toBe("+51999000001");
   });
 
   it("gives the model the current instant and the timezone to resolve relative dates", async () => {

@@ -12,7 +12,10 @@ export interface InboundMedia {
 
 export interface InboundMessageProps {
   readonly messageId: string;
+  /** Canonical identity, E.164 when it could be normalized. Used as the partition key. */
   readonly from: string;
+  /** Delivery address exactly as the provider gave it; replies must use this one. */
+  readonly fromAddress: string;
   readonly kind: InboundMessageKind;
   readonly receivedAt: Date;
   readonly fromIsE164?: boolean;
@@ -25,6 +28,7 @@ export interface InboundMessageProps {
 export class InboundMessage {
   readonly messageId: string;
   readonly from: string;
+  readonly fromAddress: string;
   readonly kind: InboundMessageKind;
   readonly receivedAt: Date;
   readonly fromIsE164: boolean;
@@ -36,6 +40,7 @@ export class InboundMessage {
   private constructor(props: InboundMessageProps) {
     this.messageId = props.messageId;
     this.from = props.from;
+    this.fromAddress = props.fromAddress;
     this.kind = props.kind;
     this.receivedAt = props.receivedAt;
     this.fromIsE164 = props.fromIsE164 ?? false;

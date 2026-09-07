@@ -23,9 +23,9 @@ export class NotifyNoteService {
   ) {}
 
   async execute(input: NotifyNoteInput): Promise<NotifyNoteOutput> {
-    const { to } = input.note;
+    const { to, owner } = input.note;
 
-    if (!this.canWriteTo(to)) {
+    if (!this.canWriteTo(owner, to)) {
       // Fail-closed: an empty allowlist outside production sends to nobody, on purpose.
       this.logger.warn("recipient_not_allowed", { noteId: input.note.noteId });
 
@@ -42,8 +42,13 @@ export class NotifyNoteService {
     return { sent: true };
   }
 
-  private canWriteTo(recipient: string): boolean {
-    return this.options.isProduction || this.options.allowedRecipients.includes(recipient);
+  /** Matches either form, so the allowlist can be written the way a human would. */
+  private canWriteTo(owner: string, address: string): boolean {
+    return (
+      this.options.isProduction ||
+      this.options.allowedRecipients.includes(owner) ||
+      this.options.allowedRecipients.includes(address)
+    );
   }
 }
 

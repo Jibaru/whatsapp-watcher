@@ -28,6 +28,7 @@ export function memoryLogger() {
 export const sourceMessage: SourceMessage = {
   messageId: "wamid.1",
   from: "+51999000001",
+  fromAddress: "999000001",
   kind: "text",
   text: "recuérdame llamar al proveedor mañana a las 10",
 };

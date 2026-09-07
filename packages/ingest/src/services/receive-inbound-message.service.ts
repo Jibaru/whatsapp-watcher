@@ -79,6 +79,7 @@ export class ReceiveInboundMessageService {
     const message = InboundMessage.create({
       messageId,
       from: phone?.e164 ?? rawFrom ?? UNKNOWN_SENDER,
+      fromAddress: rawFrom ?? UNKNOWN_SENDER,
       fromIsE164: phone !== undefined,
       fromCountry: phone?.country,
       kind: normalizeKind(input.kind),
