@@ -1,4 +1,4 @@
-import { JsonLogger, type LogFields, type NoteProcessedDetail } from "@watcher/core";
+import { JsonLogger, NoopMetrics, type LogFields, type NoteProcessedDetail } from "@watcher/core";
 import { describe, expect, it } from "bun:test";
 import type { OutboundMessage, WhatsAppSender } from "../src/repositories/whatsapp.sender.js";
 import { NotifyNoteService } from "../src/services/notify-note.service.js";
@@ -31,7 +31,7 @@ function build(options: { isProduction?: boolean; allowedRecipients?: string[] }
     lines.push(JSON.parse(line) as LogFields);
   });
   const sender = new FakeSender();
-  const service = new NotifyNoteService(sender, logger, {
+  const service = new NotifyNoteService(sender, logger, new NoopMetrics(), {
     isProduction: options.isProduction ?? false,
     allowedRecipients: options.allowedRecipients ?? [],
   });

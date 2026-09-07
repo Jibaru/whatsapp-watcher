@@ -32,6 +32,7 @@ export default $config({
     const { outbox } = await import("./infra/outbox");
     const { processor } = await import("./infra/processor");
     const { notifier } = await import("./infra/notifier");
+    const { opsAlerts } = await import("./infra/monitoring");
 
     return {
       api: api.url,
@@ -40,6 +41,7 @@ export default $config({
       outboxFunction: outbox.name,
       processorFunction: processor.name,
       notifierFunction: notifier.name,
+      opsAlerts: opsAlerts.arn,
       bus: bus.name,
       queue: noteProcessingQueue.url,
       dispatchQueue: alarmDispatchQueue.url,

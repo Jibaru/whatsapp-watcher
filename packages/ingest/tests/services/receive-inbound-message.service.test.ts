@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { ReceiveInboundMessageService } from "../../src/services/receive-inbound-message.service.js";
+import { NoopMetrics } from "@watcher/core";
 import {
   CallLog,
   FakeInboundMediaRepository,
@@ -23,7 +24,7 @@ function build(
     callLog,
   );
   const mediaRepository = new FakeInboundMediaRepository(options.media ?? {}, callLog);
-  const service = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
+  const service = new ReceiveInboundMessageService(repository, mediaRepository, logger, new NoopMetrics(), {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });

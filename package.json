@@ -15,6 +15,7 @@
     "secret:kapso-api": "sst secret set KapsoApiKey --stage dev",
     "secret:phone-id": "sst secret set KapsoPhoneNumberId --stage dev",
     "allowlist:set": "sst secret set AllowedRecipients --stage dev",
+    "ops-email:set": "sst secret set OpsEmail --stage dev",
     "typecheck": "tsc --noEmit",
     "test": "bun test packages",
     "test:integration": "sst shell --stage dev -- bun test integration",

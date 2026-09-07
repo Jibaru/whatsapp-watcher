@@ -1,7 +1,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { JsonLogger } from "@watcher/core";
+import { EmfMetrics, JsonLogger } from "@watcher/core";
 import { handle } from "hono/aws-lambda";
 import { createApp } from "./app.js";
 import { loadIngestConfig } from "./config.js";
@@ -12,6 +12,10 @@ import { ReceiveInboundMessageService } from "./services/receive-inbound-message
 // Composition root: a missing secret throws here, on the cold start, not mid-request.
 const config = loadIngestConfig();
 const logger = new JsonLogger({ service: "ingest", stage: config.stage });
+const metrics = new EmfMetrics({
+  namespace: "WhatsAppWatcher",
+  dimensions: { stage: config.stage, service: "ingest" },
+});
 
 const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   // Optional attributes are the norm here (no text, no media, no country).
@@ -34,6 +38,7 @@ const receiveInboundMessage = new ReceiveInboundMessageService(
   messageRepository,
   mediaRepository,
   logger,
+  metrics,
   { logRawPayload: !config.isProduction },
 );
 

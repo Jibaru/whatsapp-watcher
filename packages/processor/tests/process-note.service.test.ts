@@ -1,4 +1,4 @@
-import type { NoteReceivedDetail } from "@watcher/core";
+import { NoopMetrics, type NoteReceivedDetail } from "@watcher/core";
 import { describe, expect, it } from "bun:test";
 import { ModelUnavailableError, SourceMessageNotFoundError } from "../src/domain/errors.js";
 import { ProcessNoteService } from "../src/services/process-note.service.js";
@@ -43,6 +43,7 @@ function build(
     notes,
     publisher,
     logger,
+    new NoopMetrics(),
     {
       defaultTimezone: "America/Lima",
       now: () => now,

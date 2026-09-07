@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PhoneNumber, setLogContext, type Logger } from "@watcher/core";
+import { PhoneNumber, setLogContext, type Logger, type Metrics } from "@watcher/core";
 import { InboundMessage, type InboundMedia, type InboundMessageKind } from "../domain/inbound-message.js";
 import {
   MediaTooLargeError,
@@ -43,6 +43,7 @@ export class ReceiveInboundMessageService {
     private readonly repository: InboundMessageRepository,
     private readonly mediaRepository: InboundMediaRepository,
     private readonly logger: Logger,
+    private readonly metrics: Metrics,
     private readonly options: ReceiveInboundMessageOptions,
   ) {
     this.newId = options.newId ?? randomUUID;
@@ -90,6 +91,7 @@ export class ReceiveInboundMessageService {
     });
 
     setLogContext({ messageId: message.messageId });
+    this.metrics.count("notes_ingested");
 
     const outcome = await this.repository.save(message);
 

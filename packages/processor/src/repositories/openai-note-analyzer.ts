@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import type { Logger, WatcherError } from "@watcher/core";
+import type { Logger, Metrics, WatcherError } from "@watcher/core";
 import { generateObject, transcribe } from "ai";
 import { z } from "zod";
 import {
@@ -34,6 +34,7 @@ export class OpenAiNoteAnalyzer implements NoteAnalyzer {
   constructor(
     private readonly options: OpenAiAnalyzerOptions,
     private readonly logger: Logger,
+    private readonly metrics: Metrics,
   ) {
     this.openai = createOpenAI({ apiKey: options.apiKey });
   }
@@ -50,15 +51,20 @@ export class OpenAiNoteAnalyzer implements NoteAnalyzer {
         messages: [{ role: "user", content: userContent(command, transcript) }],
       });
 
+      const latencyMs = Date.now() - started;
+      this.metrics.value("model_latency_ms", latencyMs, "Milliseconds");
+
       this.logger.info("note_analyzed", {
         modelId: this.options.modelId,
-        latencyMs: Date.now() - started,
+        latencyMs,
         inputTokens: result.usage?.inputTokens,
         outputTokens: result.usage?.outputTokens,
       });
 
       return { ...result.object, dueAt: result.object.dueAt ?? undefined, transcript };
     } catch (error) {
+      this.metrics.count("model_errors");
+
       throw toAnalyzerError(error);
     }
   }
@@ -84,6 +90,8 @@ export class OpenAiNoteAnalyzer implements NoteAnalyzer {
 
       return result.text;
     } catch (error) {
+      this.metrics.count("model_errors");
+
       throw toAnalyzerError(error);
     }
   }

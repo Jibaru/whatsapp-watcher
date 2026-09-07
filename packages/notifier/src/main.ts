@@ -1,4 +1,4 @@
-import { JsonLogger } from "@watcher/core";
+import { EmfMetrics, JsonLogger } from "@watcher/core";
 import { loadNotifierConfig } from "./config.js";
 import { makeNoteProcessedHandler } from "./handlers/note-processed.handler.js";
 import { KapsoWhatsAppSender } from "./repositories/kapso-whatsapp.sender.js";
@@ -6,6 +6,10 @@ import { NotifyNoteService } from "./services/notify-note.service.js";
 
 const config = loadNotifierConfig();
 const logger = new JsonLogger({ service: "notifier", stage: config.stage });
+const metrics = new EmfMetrics({
+  namespace: "WhatsAppWatcher",
+  dimensions: { stage: config.stage, service: "notifier" },
+});
 
 const sender = new KapsoWhatsAppSender(
   {
@@ -16,7 +20,7 @@ const sender = new KapsoWhatsAppSender(
   logger,
 );
 
-const service = new NotifyNoteService(sender, logger, {
+const service = new NotifyNoteService(sender, logger, metrics, {
   isProduction: config.isProduction,
   allowedRecipients: config.allowedRecipients,
 });

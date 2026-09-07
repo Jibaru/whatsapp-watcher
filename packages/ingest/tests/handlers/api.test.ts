@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { createApp } from "../../src/app.js";
 import type { IngestConfig } from "../../src/config.js";
 import { ReceiveInboundMessageService } from "../../src/services/receive-inbound-message.service.js";
+import { NoopMetrics } from "@watcher/core";
 import {
   FakeInboundMediaRepository,
   FakeInboundMessageRepository,
@@ -22,7 +23,7 @@ function build(options: { logRawPayload?: boolean } = {}) {
   const logger = new MemoryLogger();
   const repository = new FakeInboundMessageRepository();
   const mediaRepository = new FakeInboundMediaRepository();
-  const receiveInboundMessage = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
+  const receiveInboundMessage = new ReceiveInboundMessageService(repository, mediaRepository, logger, new NoopMetrics(), {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });

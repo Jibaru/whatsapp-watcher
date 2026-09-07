@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Logger, NoteReceivedDetail } from "@watcher/core";
+import type { Logger, Metrics, NoteReceivedDetail } from "@watcher/core";
 import { NoAnalyzableContentError, UnsupportedMediaError } from "../domain/errors.js";
 import { Note } from "../domain/note.js";
 import type { InboundMessageReader, SourceMessage } from "../repositories/inbound-message.reader.js";
@@ -37,6 +37,7 @@ export class ProcessNoteService {
     private readonly notes: NoteRepository,
     private readonly publisher: NoteEventPublisher,
     private readonly logger: Logger,
+    private readonly metrics: Metrics,
     private readonly options: ProcessNoteOptions,
   ) {
     this.now = options.now ?? (() => new Date());
@@ -99,6 +100,9 @@ export class ProcessNoteService {
       priority: note.priority,
       dueAt: note.dueAt?.toISOString(),
     });
+
+    this.metrics.count("notes_processed");
+    this.metrics.value("model_confidence", note.confidence, "None");
 
     this.logger.info("note_processed", {
       ...note.toLogRecord(),

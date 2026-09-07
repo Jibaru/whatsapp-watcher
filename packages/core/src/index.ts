@@ -25,5 +25,12 @@ export {
   setLogContext,
   type LogContext,
 } from "./log-context.js";
+export {
+  EmfMetrics,
+  NoopMetrics,
+  type Metrics,
+  type MetricsOptions,
+  type MetricUnit,
+} from "./metrics.js";
 export { PhoneNumber } from "./phone.js";
 export { JsonLogger, type LogFields, type Logger, type LogSink } from "./logger.js";

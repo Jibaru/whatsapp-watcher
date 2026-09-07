@@ -2,7 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { EventBridgeClient } from "@aws-sdk/client-eventbridge";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { JsonLogger } from "@watcher/core";
+import { EmfMetrics, JsonLogger } from "@watcher/core";
 import { loadProcessorConfig } from "./config.js";
 import { makeNoteReceivedHandler } from "./handlers/note-received.handler.js";
 import { DynamoInboundMessageReader } from "./repositories/inbound-message.reader.js";
@@ -14,6 +14,10 @@ import { ProcessNoteService } from "./services/process-note.service.js";
 
 const config = loadProcessorConfig();
 const logger = new JsonLogger({ service: "processor", stage: config.stage });
+const metrics = new EmfMetrics({
+  namespace: "WhatsAppWatcher",
+  dimensions: { stage: config.stage, service: "processor" },
+});
 
 const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -29,10 +33,12 @@ const service = new ProcessNoteService(
       transcriptionModelId: config.transcriptionModelId,
     },
     logger,
+    metrics,
   ),
   new DynamoNoteRepository(documentClient, config.tableName, logger),
   new EventBridgeNoteEventPublisher(new EventBridgeClient({}), config.eventBusName, logger),
   logger,
+  metrics,
   { defaultTimezone: config.defaultTimezone },
 );
 

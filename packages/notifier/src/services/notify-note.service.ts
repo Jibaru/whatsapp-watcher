@@ -1,4 +1,4 @@
-import type { Logger, NoteProcessedDetail } from "@watcher/core";
+import type { Logger, Metrics, NoteProcessedDetail } from "@watcher/core";
 import type { WhatsAppSender } from "../repositories/whatsapp.sender.js";
 
 export interface NotifyNoteInput {
@@ -19,6 +19,7 @@ export class NotifyNoteService {
   constructor(
     private readonly sender: WhatsAppSender,
     private readonly logger: Logger,
+    private readonly metrics: Metrics,
     private readonly options: NotifyNoteOptions,
   ) {}
 
@@ -32,7 +33,18 @@ export class NotifyNoteService {
       return { sent: false, reason: "recipient_not_allowed" };
     }
 
-    await this.sender.send({ to, body: confirmationBody(input.note) });
+    this.metrics.count("alarms_attempted");
+
+    try {
+      await this.sender.send({ to, body: confirmationBody(input.note) });
+    } catch (error) {
+      // Counted here so the ratio covers every reason a send did not make it, retryable or not.
+      this.metrics.count("alarms_failed");
+
+      throw error;
+    }
+
+    this.metrics.count("alarms_sent");
 
     this.logger.info("note_notified", {
       noteId: input.note.noteId,

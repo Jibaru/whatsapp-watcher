@@ -242,14 +242,14 @@ sin su causa no dice nada.
 | Alarma | Métrica | Umbral |
 |---|---|---|
 | `DLQNotEmpty` (×2 colas) | `ApproximateNumberOfMessagesVisible` | `> 0` en 1 periodo de 5 min |
-| `QueueBacklogStale` | `ApproximateAgeOfOldestMessage` | `> 900 s` |
-| `LambdaErrors` (×4 funciones) | `Errors` | `≥ 1` en 5 min (`≥ 3` en `production`) |
-| `LambdaThrottles` | `Throttles` | `≥ 1` |
-| `LambdaDurationP95` | `Duration` p95 | `> 80 %` del timeout |
+| `QueueBacklogStale` (×2 colas) | `ApproximateAgeOfOldestMessage` | `> 900 s` |
+| `LambdaErrors` (×4: `ingest`, `outbox`, `processor`, `notifier`) | `Errors` | `≥ 1` en 5 min (`≥ 3` en `production`) |
+| `LambdaThrottles` (×4) | `Throttles` | `≥ 1` |
+| `LambdaDurationP95` (×4) | `Duration` p95 | `> 80 %` del timeout, 2 periodos |
 | `ApiGateway5XX` | `5xx` | `≥ 1` en 5 min |
 | `ApiGatewayLatencyP99` | `Latency` p99 | `> 3000 ms` |
 | `DynamoThrottled` | `ThrottledRequests` | `≥ 1` |
-| `BedrockInvocationErrors` | métrica EMF propia `bedrock_errors` | `≥ 3` en 15 min |
+| `ModelInvocationErrors` | métrica EMF propia `model_errors` | `≥ 3` en 15 min |
 
 ### 8.2 Alarmas de negocio (métricas EMF propias)
 
@@ -259,10 +259,21 @@ sin su causa no dice nada.
 | `AlarmsNotDelivered` | `alarms_failed / alarms_attempted > 10 %` en 1 h. |
 | `LowModelConfidence` | Media de `confidence` < 0.5 en 1 h → prompt o modelo degradado. |
 
+### 8.2.1 Punto ciego conocido
+
+Los errores **permanentes** se confirman a propósito (§7.1), así que **nunca llegan a una DLQ** y
+ninguna alarma basada en profundidad de cola los ve. Un audio que el modelo rechaza o un envío fuera
+de la ventana de 24 h desaparecen hoy con una sola línea de log. `AlarmsNotDelivered` cubre el tramo
+del `notifier`; el del `processor` no está cubierto y haría falta una métrica `notes_dropped` por
+`code`. Queda anotado, no resuelto.
+
 ### 8.3 Logs y métricas
 
 - Log JSON estructurado con `correlationId`, `messageId`, `userPhoneHash`, `stage`, `component`.
-- Métricas de negocio por **EMF**: `notes_processed`, `bedrock_latency_ms`, `alarms_sent`, `dlq_redrives`.
+- Métricas de negocio por **EMF** en el namespace `WhatsAppWatcher`, con dimensiones `stage` y
+  `service`: `notes_ingested`, `notes_processed`, `model_latency_ms`, `model_errors`,
+  `model_confidence`, `alarms_attempted`, `alarms_sent`, `alarms_failed`. EMF significa que la
+  métrica sale del propio log: no hay `PutMetricData` que pueda fallar en el camino crítico.
 - Un **dashboard** por stage: entradas al webhook, profundidad de colas, errores por Lambda, latencia de
   Bedrock, alarmas enviadas.
 - Retención de logs: 14 días en `dev`, 90 días en `production`.
