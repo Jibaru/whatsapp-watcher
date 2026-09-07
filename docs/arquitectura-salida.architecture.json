@@ -1,0 +1,310 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "WhatsApp Watcher — Salida y observabilidad",
+    "output": "arquitectura-salida.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1370,
+      540
+    ],
+    "views": [
+      {
+        "id": "vuelta",
+        "label": "Vuelta al usuario",
+        "focus": [
+          "processor",
+          "bus",
+          "dispatch",
+          "notifier",
+          "kapso",
+          "usuario"
+        ],
+        "note": "La confirmación y el recordatorio salen por la misma cola y el mismo consumidor."
+      },
+      {
+        "id": "fallo-salida",
+        "label": "Fallo de envío",
+        "focus": [
+          "dispatch",
+          "dispatch-dlq",
+          "alarms"
+        ],
+        "note": "Si KAPSO está caído, el envío se reintenta y acaba en su propia DLQ, que alarma."
+      },
+      {
+        "id": "alerta",
+        "label": "Alerta al operador",
+        "focus": [
+          "dispatch-dlq",
+          "alarms",
+          "sns",
+          "correo"
+        ],
+        "note": "Ambas DLQ y las métricas de las lambdas convergen en la misma alarma y el mismo correo."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "processor",
+      "type": "backend",
+      "label": "Lambda processor",
+      "sublabel": "nota lista",
+      "pos": [
+        50,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "bus",
+      "type": "messagebus",
+      "label": "EventBridge",
+      "sublabel": "bus + Scheduler",
+      "pos": [
+        275,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "dispatch",
+      "type": "messagebus",
+      "label": "SQS",
+      "sublabel": "alarm-dispatch",
+      "pos": [
+        500,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "notifier",
+      "type": "backend",
+      "label": "Lambda notifier",
+      "sublabel": "envío fail-closed",
+      "pos": [
+        725,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "allowlist en dev"
+    },
+    {
+      "id": "kapso",
+      "type": "external",
+      "label": "KAPSO",
+      "sublabel": "WhatsApp Business",
+      "pos": [
+        950,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "usuario",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "WhatsApp",
+      "pos": [
+        1175,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "alarms",
+      "type": "cloud",
+      "label": "CloudWatch",
+      "sublabel": "métricas y alarmas",
+      "pos": [
+        725,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "sns",
+      "type": "messagebus",
+      "label": "SNS",
+      "sublabel": "ops-alerts",
+      "pos": [
+        950,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "correo",
+      "type": "external",
+      "label": "Operador",
+      "sublabel": "correo on-call",
+      "pos": [
+        1175,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "dispatch-dlq",
+      "type": "messagebus",
+      "label": "SQS DLQ",
+      "sublabel": "alarmas sin enviar",
+      "pos": [
+        500,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "emite-procesado",
+      "from": "processor",
+      "to": "bus",
+      "label": "note.processed",
+      "variant": "emphasis"
+    },
+    {
+      "id": "regla-salida",
+      "from": "bus",
+      "to": "dispatch",
+      "label": "regla",
+      "variant": "emphasis"
+    },
+    {
+      "id": "entrega-alarma",
+      "from": "dispatch",
+      "to": "notifier",
+      "variant": "emphasis"
+    },
+    {
+      "id": "envia-alarma",
+      "from": "notifier",
+      "to": "kapso",
+      "label": "envía alarma",
+      "variant": "emphasis"
+    },
+    {
+      "id": "recibe",
+      "from": "kapso",
+      "to": "usuario",
+      "label": "recordatorio",
+      "variant": "emphasis"
+    },
+    {
+      "id": "redrive-salida",
+      "from": "dispatch",
+      "to": "dispatch-dlq",
+      "label": "3 intentos",
+      "variant": "dashed",
+      "labelDy": 50
+    },
+    {
+      "id": "dlq-salida-alarma",
+      "from": "dispatch-dlq",
+      "to": "alarms",
+      "label": "DLQ no vacía",
+      "variant": "security",
+      "labelDy": -54
+    },
+    {
+      "id": "telemetria",
+      "from": "processor",
+      "to": "alarms",
+      "label": "logs y métricas",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          125,
+          470
+        ],
+        [
+          800,
+          470
+        ]
+      ],
+      "labelAt": [
+        400,
+        450
+      ]
+    },
+    {
+      "id": "alarma-a-sns",
+      "from": "alarms",
+      "to": "sns",
+      "label": "alarma",
+      "variant": "security"
+    },
+    {
+      "id": "correo-ops",
+      "from": "sns",
+      "to": "correo",
+      "label": "email",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "Una sola salida",
+      "items": [
+        "El bus se reutiliza: note.processed y alarm.due van a la misma cola",
+        "La confirmación inmediata y el recordatorio comparten consumidor",
+        "El recordatorio programado lo dispara EventBridge Scheduler"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Fallo de envío",
+      "items": [
+        "Si KAPSO falla, el envío se reintenta desde la cola",
+        "Agotados los intentos, DLQ propia: el aviso no se pierde en el aire",
+        "En dev el notifier solo envía a la allowlist; si falta, no envía"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Observabilidad",
+      "items": [
+        "Las dos DLQ tienen la misma alarma de profundidad",
+        "Alarmas técnicas y de negocio caen en el mismo topic de SNS",
+        "correlationId común en todas las lambdas para seguir una nota"
+      ]
+    }
+  ]
+}

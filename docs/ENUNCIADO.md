@@ -59,7 +59,10 @@ Construir un pipeline **event-driven, asíncrono y tolerante a fallos** en AWS q
 
 ## 5. Arquitectura objetivo
 
-> Diagrama interactivo (temas claro/oscuro, vistas guiadas y export PNG/SVG): [`docs/arquitectura.html`](./arquitectura.html) — fuente: `docs/arquitectura.architecture.json`.
+> Diagramas interactivos (temas claro/oscuro, vistas guiadas y export PNG/SVG):
+> [`arquitectura.html`](./arquitectura.html) — ingesta y proceso ·
+> [`arquitectura-salida.html`](./arquitectura-salida.html) — salida y observabilidad.
+> Fuentes: los `.architecture.json` del mismo directorio.
 
 ```mermaid
 flowchart LR
@@ -67,7 +70,8 @@ flowchart LR
   K -->|webhook POST| AGW[API Gateway HTTP API]
   AGW --> L1[Lambda ingest]
   L1 -->|PutItem idempotente| DDB[(DynamoDB WatcherMain)]
-  L1 -->|PutEvents| EB[EventBridge bus watcher]
+  DDB -->|stream| OBX[Lambda outbox]
+  OBX -->|PutEvents| EB[EventBridge bus watcher]
   EB -->|rule note.received| SQS[SQS note-processing]
   SQS -.->|maxReceiveCount 3| DLQ[SQS DLQ]
   SQS --> L2[Lambda processor]
@@ -96,8 +100,9 @@ flowchart LR
 | # | Componente | Responsabilidad | Notas |
 |---|---|---|---|
 | 1 | **API Gateway (HTTP API)** | Único punto de entrada público. Rutas `POST /webhooks/kapso` y `GET /health`. | Throttling por ruta; access logs a CloudWatch. |
-| 2 | **Lambda `ingest`** | Verificar el secret/firma de KAPSO, validar payload con Zod, **descargar el media y guardarlo en S3**, escribir el evento crudo en DynamoDB de forma **idempotente**, publicar en EventBridge y responder `200`. | Guarda el media porque la URL de KAPSO caduca; nunca llama a Bedrock. Presupuesto: < 5 s con media, < 1 s sin él. |
+| 2 | **Lambda `ingest`** | Verificar el secret/firma de KAPSO, validar payload con Zod, **descargar el media y guardarlo en S3**, y escribir el evento crudo en DynamoDB de forma **idempotente**. Esa es su **única escritura**: no publica eventos. | Guarda el media porque la URL de KAPSO caduca; nunca llama a Bedrock. Presupuesto: < 5 s con media, < 1 s sin él. |
 | 3 | **DynamoDB `WatcherMain`** | Single-table: evento crudo, nota estructurada, recordatorio y regla de alarma. | Stream `NEW_AND_OLD_IMAGES`. **Sin TTL**: el histórico no caduca (§7). |
+| 3b | **Lambda `outbox`** | Leer el stream de DynamoDB y publicar `note.received` en EventBridge por cada `INSERT` de un `RAW#`. | Patrón *outbox transaccional*: el evento se deriva de un dato ya confirmado, así que no se pierde ni se inventa. |
 | 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.processed`, `alarm.due`, `note.failed`. Además reglas `schedule` para el evaluador. | Permite añadir consumidores nuevos sin tocar el productor. |
 | 5 | **SQS `note-processing` (+ DLQ)** | Buffer y reintentos del trabajo pesado. | `maxReceiveCount = 3`; `visibilityTimeout ≥ 6×` el timeout de la Lambda. |
 | 6 | **Lambda `processor`** | Leer el media desde S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
@@ -129,7 +134,9 @@ flowchart LR
    El orden importa: primero S3, después la clave de idempotencia. Al revés, un reintento tras un fallo de
    subida quedaría deduplicado y perdería el media; así, como mucho, queda un objeto huérfano que el lifecycle
    se lleva.
-6. `ingest` publica `note.received` (con `mediaKey`, nunca los bytes) en EventBridge y responde `200`.
+6. `ingest` responde `200` y termina. **No publica nada**: el `INSERT` viaja por el stream de DynamoDB,
+   `outbox` lo transforma en `note.received` (con `mediaKey`, nunca los bytes) y lo publica en EventBridge.
+   Así la ingesta tiene una sola escritura que puede fallar, en vez de dos que hay que mantener en sincronía.
 7. La regla enruta a `note-processing`; `processor` toma el mensaje.
 8. `processor`:
    - lee el media de S3 con la `mediaKey` del evento;
@@ -172,7 +179,8 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 | Payload inválido desde KAPSO | `ingest` responde `400`, log de error y métrica; no se encola nada. |
 | Firma/secret incorrecto | `401`; alarma si supera umbral (posible abuso). |
 | `ingest` no puede descargar o subir el media | Devuelve `5xx` sin escribir la clave de idempotencia → KAPSO reintenta el webhook entero y el media se recupera. |
-| `ingest` no puede escribir en DynamoDB | Devuelve `5xx` → KAPSO reintenta; alarma por `5XX` de API Gateway. |
+| `ingest` no puede escribir en DynamoDB | Devuelve `5xx` → KAPSO reintenta; alarma por `5XX` de API Gateway. Como no hay segunda escritura, no existe el caso de "guardado pero nunca anunciado". |
+| `outbox` falla al publicar | Lambda reintenta el lote del stream y, agotados los intentos, va a su DLQ. El dato ya está en DynamoDB: el evento se puede reemitir. |
 | Bedrock lanza throttling / timeout | El mensaje vuelve a la cola (backoff de SQS), hasta 3 intentos. |
 | Fallo permanente al procesar (media corrupto, respuesta no parseable) | Tras 3 intentos → **DLQ**; la nota queda `status = FAILED`; se emite `note.failed`. |
 | Mensaje en la DLQ | Alarma `DLQNotEmpty` → SNS → correo al operador con el `messageId`. |
