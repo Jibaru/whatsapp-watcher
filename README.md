@@ -100,6 +100,9 @@ bun run webhook:test <url> <secret>
   confirmation always fits; a reminder that fires the next day does not, and needs an approved
   template. The sender already recognises Meta's code 131047 and treats it as permanent instead of
   retrying, so the case is visible in the logs the day it happens.
+- Replies always go to the full international number. A national one lets WhatsApp fill in the
+  country of the sending account, which once delivered a note to a stranger in another country, so
+  the sandbox test number must be registered with its country code.
 - A permanent failure drops the note quietly. The raw item should be left as `FAILED` and a
   `note.failed` event emitted, as the design says.
 - Note content leaves AWS: text, images and audio are sent to OpenAI. Swapping that for a model

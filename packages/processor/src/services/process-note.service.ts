@@ -90,7 +90,9 @@ export class ProcessNoteService {
       noteId: note.noteId,
       pk: input.note.pk,
       sk: input.note.sk,
-      to: source.fromAddress,
+      // Always the full international number. A national one lets the provider guess the
+      // country, and a wrong guess delivers the note to a stranger.
+      to: source.from.startsWith("+") ? source.from : source.fromAddress,
       owner: note.owner,
       title: note.title,
       summary: note.summary,
