@@ -1,0 +1,9 @@
+node_modules/
+.sst/
+.env
+.env.*
+
+# archify browser-evidence sidecars (regenerate with: archify visual-check)
+*.visual-check.json
+*.visual-check.html
+*.visual-check.*.png
