@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PhoneNumber, type Logger } from "@watcher/core";
+import { PhoneNumber, setLogContext, type Logger } from "@watcher/core";
 import { InboundMessage, type InboundMessageKind } from "../domain/inbound-message.js";
 import type { InboundMessageRepository } from "../repositories/inbound-message.repository.js";
 
@@ -84,6 +84,8 @@ export class ReceiveInboundMessageService {
           }
         : undefined,
     });
+
+    setLogContext({ messageId: message.messageId });
 
     const outcome = await this.repository.save(message);
 

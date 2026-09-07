@@ -11,11 +11,11 @@ const config: IngestConfig = {
   kapsoWebhookSecret: "test-secret",
 };
 
-function build() {
+function build(options: { logRawPayload?: boolean } = {}) {
   const logger = new MemoryLogger();
   const repository = new FakeInboundMessageRepository();
   const receiveInboundMessage = new ReceiveInboundMessageService(repository, logger, {
-    logRawPayload: false,
+    logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });
 
@@ -64,9 +64,16 @@ const imageMessage = {
   is_new_conversation: false,
 };
 
-function post(payload: unknown, options: { signature?: string | null } = {}) {
+function post(
+  payload: unknown,
+  options: { signature?: string | null; correlationId?: string } = {},
+) {
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { "content-type": "application/json" };
+
+  if (options.correlationId !== undefined) {
+    headers["x-correlation-id"] = options.correlationId;
+  }
   const signature =
     options.signature === undefined ? hmacHex(config.kapsoWebhookSecret, body) : options.signature;
 
@@ -182,6 +189,39 @@ describe("ingest api", () => {
     expect(repository.saved[0]?.from).toBe("982705024");
     expect(repository.saved[0]?.fromIsE164).toBe(false);
     expect(logger.events()).toContain("phone_not_normalized");
+  });
+
+  it("stamps every log line of the request with the same correlation id", async () => {
+    const { app, logger } = build({ logRawPayload: true });
+
+    const response = await app.request(post(imageMessage));
+    const correlationId = response.headers.get("x-correlation-id");
+
+    expect(correlationId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(logger.entries.length).toBeGreaterThan(1);
+    for (const entry of logger.entries) {
+      expect(entry.correlationId).toBe(correlationId);
+    }
+  });
+
+  it("carries the conversation and message ids into the persistence log", async () => {
+    const { app, logger } = build();
+
+    await app.request(post(imageMessage));
+
+    expect(logger.find("inbound_message_received")).toMatchObject({
+      conversationId: "d41530b9",
+      messageId: "wamid.HBgTUEUuMTYx",
+    });
+  });
+
+  it("reuses an inbound correlation id instead of minting a new one", async () => {
+    const { app, logger } = build();
+
+    const response = await app.request(post(imageMessage, { correlationId: "trace-from-caller" }));
+
+    expect(response.headers.get("x-correlation-id")).toBe("trace-from-caller");
+    expect(logger.find("inbound_message_received")?.correlationId).toBe("trace-from-caller");
   });
 
   it("accepts unknown fields: the payload carries more than we map", async () => {

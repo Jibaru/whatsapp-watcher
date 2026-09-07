@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { IngestConfig } from "./config.js";
 import { healthRoute, makeHealthHandler } from "./handlers/health.handler.js";
 import { kapsoWebhookRoute, makeKapsoWebhookHandler } from "./handlers/kapso-webhook.handler.js";
+import { withLogContext } from "./handlers/middleware/log-context.js";
 import { verifyKapsoSignature } from "./handlers/middleware/verify-kapso-signature.js";
 import type { ReceiveInboundMessageService } from "./services/receive-inbound-message.service.js";
 
@@ -25,6 +26,7 @@ export function createApp(deps: AppDependencies) {
     },
   });
 
+  app.use(withLogContext());
   app.use("/webhooks/*", verifyKapsoSignature(deps.config, deps.logger));
 
   app.openapi(healthRoute, makeHealthHandler(deps.config.stage));

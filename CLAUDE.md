@@ -41,6 +41,10 @@ handler     HTTP, formato del proveedor, validación Zod → construye el DTO de
 - Código, identificadores, mensajes de error, eventos de log y nombres de test: en inglés.
 - Documentación (`docs/`, este fichero): en español.
 - Log estructurado JSON con `event` en snake_case. El teléfono va hasheado, nunca en claro.
+- **Trazabilidad**: cada lambda abre `runWithLogContext({ correlationId })` en su entrada y el logger
+  estampa `correlationId`, `conversationId` y `messageId` en todas las líneas. Los ids se descubren con
+  `setLogContext()`; nunca se pasan como parámetro por las capas. Al emitir un evento a otra lambda, el
+  `correlationId` viaja en el payload y la lambda receptora reabre el contexto con él.
 - Fail-closed: si falta configuración, se lanza en el arranque en frío, no a mitad de petición.
 - Commits: conventional commits, en inglés, sin `Co-Authored-By` ni trailers.
 

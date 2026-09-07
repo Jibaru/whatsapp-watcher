@@ -1,3 +1,4 @@
+import { setLogContext } from "@watcher/core";
 import { createRoute, z, type RouteHandler } from "@hono/zod-openapi";
 import type { ReceiveInboundMessageService } from "../services/receive-inbound-message.service.js";
 
@@ -34,6 +35,7 @@ export const KapsoWebhookBodySchema = z
     message: KapsoMessageSchema.optional(),
     conversation: z
       .looseObject({
+        id: z.string().optional(),
         phone_number: z.string().optional(),
         business_scoped_user_id: z.string().optional(),
       })
@@ -84,6 +86,8 @@ export function makeKapsoWebhookHandler(
     const body = c.req.valid("json");
     const message = body.message;
     const kapso = message?.kapso;
+
+    setLogContext({ conversationId: body.conversation?.id, messageId: message?.id });
 
     const result = await service.execute({
       messageId: message?.id,
