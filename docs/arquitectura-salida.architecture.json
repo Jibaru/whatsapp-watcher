@@ -44,6 +44,17 @@
           "correo"
         ],
         "note": "Un solo topic y una suscripción por dirección: añadir a alguien de guardia no toca el código de las alarmas."
+      },
+      {
+        "id": "red-de-seguridad",
+        "label": "Red de seguridad",
+        "focus": [
+          "scheduler",
+          "evaluator",
+          "dispatch",
+          "notifier"
+        ],
+        "note": "Si el Scheduler no entrega, el barrido reencola lo que siga pendiente; pasada una hora lo da por expirado."
       }
     ]
   },
@@ -204,6 +215,21 @@
         60
       ],
       "tag": "se borra al dispararse"
+    },
+    {
+      "id": "evaluator",
+      "type": "backend",
+      "label": "Lambda evaluator",
+      "sublabel": "barrido cada 5 min",
+      "pos": [
+        275,
+        370
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "lee AlarmDueIndex"
     }
   ],
   "connections": [
@@ -232,7 +258,22 @@
       "from": "scheduler",
       "to": "dispatch",
       "label": "alarm.due",
-      "variant": "emphasis"
+      "variant": "emphasis",
+      "labelAt": [
+        520,
+        180
+      ]
+    },
+    {
+      "id": "barrido",
+      "from": "evaluator",
+      "to": "dispatch",
+      "label": "no entregado",
+      "variant": "dashed",
+      "labelAt": [
+        330,
+        330
+      ]
     },
     {
       "id": "entrega-alarma",
@@ -315,7 +356,7 @@
       "items": [
         "La confirmación sale por el bus; el recordatorio, por EventBridge Scheduler",
         "Ambos caen en la misma cola con el mismo sobre: un solo consumidor",
-        "Un schedule por recordatorio, que se borra solo al dispararse"
+        "Si el Scheduler falla, el evaluator reencola lo que quedó pendiente"
       ]
     },
     {
