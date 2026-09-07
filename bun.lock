@@ -40,6 +40,18 @@
         "@types/aws-lambda": "^8.10.163",
       },
     },
+    "packages/outbox": {
+      "name": "@watcher/outbox",
+      "version": "0.1.0",
+      "dependencies": {
+        "@aws-sdk/client-eventbridge": "^3.1127.0",
+        "@aws-sdk/util-dynamodb": "^3.996.9",
+        "@watcher/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/aws-lambda": "^8.10.163",
+      },
+    },
     "packages/processor": {
       "name": "@watcher/processor",
       "version": "0.1.0",
@@ -136,6 +148,8 @@
     "@watcher/core": ["@watcher/core@workspace:packages/core"],
 
     "@watcher/ingest": ["@watcher/ingest@workspace:packages/ingest"],
+
+    "@watcher/outbox": ["@watcher/outbox@workspace:packages/outbox"],
 
     "@watcher/processor": ["@watcher/processor@workspace:packages/processor"],
 

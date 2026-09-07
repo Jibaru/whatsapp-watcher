@@ -26,6 +26,10 @@ declare module "sst" {
       "type": "sst.aws.Queue"
       "url": string
     }
+    "OutboxFunction": {
+      "name": string
+      "type": "sst.aws.Function"
+    }
     "ProcessorFunction": {
       "name": string
       "type": "sst.aws.Function"

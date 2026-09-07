@@ -6,7 +6,6 @@ import {
   type InboundMediaRepository,
 } from "../repositories/inbound-media.repository.js";
 import type { InboundMessageRepository } from "../repositories/inbound-message.repository.js";
-import type { NoteEventPublisher } from "../repositories/note-event.publisher.js";
 
 export interface ReceiveInboundMessageInput {
   readonly messageId?: string;
@@ -43,7 +42,6 @@ export class ReceiveInboundMessageService {
   constructor(
     private readonly repository: InboundMessageRepository,
     private readonly mediaRepository: InboundMediaRepository,
-    private readonly publisher: NoteEventPublisher,
     private readonly logger: Logger,
     private readonly options: ReceiveInboundMessageOptions,
   ) {
@@ -100,19 +98,6 @@ export class ReceiveInboundMessageService {
       generatedMessageId,
     });
 
-    // Published even on a duplicate: SQS is at-least-once anyway, so the processor has to be
-    // idempotent regardless, and this way a retry can still recover a publish that was lost.
-    await this.publisher.publishNoteReceived({
-      messageId: message.messageId,
-      pk: outcome.pk,
-      sk: outcome.sk,
-      from: message.from,
-      kind: message.kind,
-      hasMedia: message.hasMedia(),
-      mediaKey: message.media?.key,
-      receivedAt: message.receivedAt.toISOString(),
-      duplicate: outcome.duplicate,
-    });
 
     return {
       messageId: message.messageId,

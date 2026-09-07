@@ -10,10 +10,6 @@ import type {
   InboundMessageRepository,
   SaveOutcome,
 } from "../../src/repositories/inbound-message.repository.js";
-import type {
-  NoteEventPublisher,
-  PublishNoteReceivedCommand,
-} from "../../src/repositories/note-event.publisher.js";
 
 /** Wraps the real logger so the assertions see exactly what CloudWatch would get. */
 export class MemoryLogger implements Logger {
@@ -79,23 +75,6 @@ export class FakeInboundMessageRepository implements InboundMessageRepository {
   }
 }
 
-export class FakeNoteEventPublisher implements NoteEventPublisher {
-  readonly published: PublishNoteReceivedCommand[] = [];
-
-  constructor(
-    private readonly behaviour: { fails?: boolean } = {},
-    private readonly callLog = new CallLog(),
-  ) {}
-
-  async publishNoteReceived(command: PublishNoteReceivedCommand): Promise<void> {
-    this.callLog.calls.push("publish");
-    this.published.push(command);
-
-    if (this.behaviour.fails === true) {
-      throw new Error("PutEvents rejected the entry");
-    }
-  }
-}
 
 export class FakeInboundMediaRepository implements InboundMediaRepository {
   readonly stored: StoreMediaCommand[] = [];

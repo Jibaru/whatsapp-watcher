@@ -1,5 +1,4 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { EventBridgeClient } from "@aws-sdk/client-eventbridge";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { JsonLogger } from "@watcher/core";
@@ -7,7 +6,6 @@ import { handle } from "hono/aws-lambda";
 import { createApp } from "./app.js";
 import { loadIngestConfig } from "./config.js";
 import { DynamoInboundMessageRepository } from "./repositories/dynamo-inbound-message.repository.js";
-import { EventBridgeNoteEventPublisher } from "./repositories/note-event.publisher.js";
 import { S3InboundMediaRepository } from "./repositories/s3-inbound-media.repository.js";
 import { ReceiveInboundMessageService } from "./services/receive-inbound-message.service.js";
 
@@ -32,16 +30,9 @@ const mediaRepository = new S3InboundMediaRepository(
   logger,
 );
 
-const publisher = new EventBridgeNoteEventPublisher(
-  new EventBridgeClient({}),
-  config.eventBusName,
-  logger,
-);
-
 const receiveInboundMessage = new ReceiveInboundMessageService(
   messageRepository,
   mediaRepository,
-  publisher,
   logger,
   { logRawPayload: !config.isProduction },
 );

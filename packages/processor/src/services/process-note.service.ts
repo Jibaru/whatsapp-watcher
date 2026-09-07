@@ -19,7 +19,6 @@ export class ProcessNoteService {
       kind: input.note.kind,
       hasMedia: input.note.hasMedia,
       mediaKey: input.note.mediaKey,
-      duplicate: input.note.duplicate,
       receiveCount: input.receiveCount,
     });
 

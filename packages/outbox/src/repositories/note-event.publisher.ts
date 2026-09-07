@@ -1,19 +1,13 @@
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 import {
-  getLogContext,
   NOTE_RECEIVED,
   WATCHER_EVENT_SOURCE,
   type Logger,
   type NoteReceivedDetail,
 } from "@watcher/core";
 
-export type PublishNoteReceivedCommand = Omit<
-  NoteReceivedDetail,
-  "correlationId" | "conversationId"
->;
-
 export interface NoteEventPublisher {
-  publishNoteReceived(command: PublishNoteReceivedCommand): Promise<void>;
+  publishNoteReceived(detail: NoteReceivedDetail): Promise<void>;
 }
 
 export class EventBridgeNoteEventPublisher implements NoteEventPublisher {
@@ -23,15 +17,7 @@ export class EventBridgeNoteEventPublisher implements NoteEventPublisher {
     private readonly logger: Logger,
   ) {}
 
-  async publishNoteReceived(command: PublishNoteReceivedCommand): Promise<void> {
-    const context = getLogContext();
-
-    const detail: NoteReceivedDetail = {
-      ...command,
-      correlationId: context?.correlationId ?? command.messageId,
-      conversationId: context?.conversationId,
-    };
-
+  async publishNoteReceived(detail: NoteReceivedDetail): Promise<void> {
     const response = await this.client.send(
       new PutEventsCommand({
         Entries: [

@@ -11,6 +11,7 @@ Sí, esto es un monorepo con workspaces de Bun. **Un módulo por lambda**, más 
 packages/
   core/     @watcher/core     logger, hash, helpers de entorno
   ingest/   @watcher/ingest   lambda del webhook de KAPSO
+  outbox/   @watcher/outbox   lambda del stream de DynamoDB al bus
   processor/ @watcher/processor lambda que consume de SQS
 infra/      un fichero por lambda (api.ts, ingest.ts), importados desde sst.config.ts
 integration/ tests contra el stage dev real (fuera de packages: cruzan varios modulos)
@@ -47,6 +48,8 @@ handler     HTTP, formato del proveedor, validación Zod → construye el DTO de
   estampa `correlationId`, `conversationId` y `messageId` en todas las líneas. Los ids se descubren con
   `setLogContext()`; nunca se pasan como parámetro por las capas. Al emitir un evento a otra lambda, el
   `correlationId` viaja en el payload y la lambda receptora reabre el contexto con él.
+- **Nada de dobles escrituras**: una lambda escribe en un sitio y punto. Los eventos se derivan del
+  stream de DynamoDB (`outbox`), así que lo que se anuncia es exactamente lo que se confirmó.
 - El contrato de un evento entre lambdas vive en `@watcher/core` (`events.ts`): el productor lo
   construye y el consumidor lo valida con el mismo esquema, para que no se separen.
 - Fail-closed: si falta configuración, se lanza en el arranque en frío, no a mitad de petición.

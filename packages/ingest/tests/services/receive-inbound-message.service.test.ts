@@ -4,7 +4,6 @@ import {
   CallLog,
   FakeInboundMediaRepository,
   FakeInboundMessageRepository,
-  FakeNoteEventPublisher,
   MemoryLogger,
 } from "../support/fakes.js";
 
@@ -15,7 +14,6 @@ function build(
     logRawPayload?: boolean;
     duplicate?: boolean;
     media?: { tooLarge?: boolean; fails?: boolean };
-    publisher?: { fails?: boolean };
   } = {},
 ) {
   const logger = new MemoryLogger();
@@ -25,13 +23,12 @@ function build(
     callLog,
   );
   const mediaRepository = new FakeInboundMediaRepository(options.media ?? {}, callLog);
-  const publisher = new FakeNoteEventPublisher(options.publisher ?? {}, callLog);
-  const service = new ReceiveInboundMessageService(repository, mediaRepository, publisher, logger, {
+  const service = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });
 
-  return { service, repository, mediaRepository, publisher, logger, callLog };
+  return { service, repository, mediaRepository, logger, callLog };
 }
 
 describe("ReceiveInboundMessageService", () => {
@@ -115,7 +112,7 @@ describe("ReceiveInboundMessageService", () => {
       rawPayload: {},
     });
 
-    expect(callLog.calls).toEqual(["store", "save", "publish"]);
+    expect(callLog.calls).toEqual(["store", "save"]);
     expect(mediaRepository.stored[0]).toMatchObject({
       sourceUrl: "https://kapso.example/media/1.jpg",
       messageId: "wamid-1",

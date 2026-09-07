@@ -1,6 +1,6 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { PutCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { Logger } from "@watcher/core";
+import { getLogContext, type Logger } from "@watcher/core";
 import type { InboundMessage } from "../domain/inbound-message.js";
 import type { InboundMessageRepository, SaveOutcome } from "./inbound-message.repository.js";
 
@@ -12,10 +12,16 @@ export class DynamoInboundMessageRepository implements InboundMessageRepository 
   ) {}
 
   async save(message: InboundMessage): Promise<SaveOutcome> {
+    // The outbox reads the trace from the item: with no publish step, this is the only
+    // place where the request that created it can still be recorded.
+    const context = getLogContext();
+
     const item = {
       pk: `USER#${message.from}`,
       sk: `RAW#${message.messageId}`,
       entityType: "InboundMessage",
+      correlationId: context?.correlationId,
+      conversationId: context?.conversationId,
       messageId: message.messageId,
       from: message.from,
       fromIsE164: message.fromIsE164,

@@ -15,7 +15,6 @@ export const NoteReceivedDetailSchema = z.object({
   hasMedia: z.boolean(),
   mediaKey: z.string().optional(),
   receivedAt: z.string(),
-  duplicate: z.boolean(),
 });
 
 export type NoteReceivedDetail = z.infer<typeof NoteReceivedDetailSchema>;

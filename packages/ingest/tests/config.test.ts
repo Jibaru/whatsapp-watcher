@@ -6,7 +6,6 @@ const required = {
   KAPSO_WEBHOOK_SECRET: "secret",
   MEDIA_BUCKET: "bucket",
   TABLE_NAME: "table",
-  EVENT_BUS_NAME: "bus",
 };
 
 describe("loadIngestConfig", () => {
