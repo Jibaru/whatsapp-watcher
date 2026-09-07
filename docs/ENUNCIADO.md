@@ -115,7 +115,7 @@ flowchart LR
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
 | 10 | **Lambda `evaluator`** | Cada 5 min barre los recordatorios vencidos que siguen `PENDING` y los reencola. Es la red de seguridad bajo EventBridge Scheduler. | Lee `AlarmDueIndex`, nunca escanea. Ventana de gracia de 2 min para no competir con el Scheduler, y a partir de 1 h marca `EXPIRED`: sonar con horas de retraso es peor que no sonar. **No evalúa reglas declarativas**: sin forma de crear un `RULE#` sería una máquina sin entrada (§6.3). |
 | 11 | **SQS `alarm-dispatch` (+ DLQ)** | Cola de salida: garantiza que un envío fallido a KAPSO se reintenta. | Misma política de redrive. |
-| 12 | **Lambda `notifier`** | Enviar el **recordatorio** por KAPSO (template o free-form según la ventana de 24 h) y marcarlo como enviado. Es lo único que llega al WhatsApp del usuario. | **Fail-closed**: en `dev` solo destinatarios de la allowlist. |
+| 12 | **Lambda `notifier`** | Enviar el **recordatorio** por KAPSO como texto libre y marcarlo `SENT`. Si la ventana de 24 h está cerrada lo marca `UNDELIVERABLE` (§6.2). Es lo único que llega al WhatsApp del usuario. | **Fail-closed**: en `dev` solo destinatarios de la allowlist. |
 | 12b | **Lambda `digest`** | Cada 24 h leer las notas del día en `NoteDigestIndex` y los recordatorios de mañana en `AlarmDueIndex`, componer el resumen y publicarlo en SNS. | Es *polling*, no eventos: nadie le empuja el resumen, él pregunta. Si no hubo nada que contar no manda correo (§6.3). |
 | 13 | **CloudWatch** | Logs JSON estructurados, métricas EMF de negocio, dashboard único del pipeline. | `correlationId = messageId` en todos los logs. |
 | 14 | **CloudWatch Alarms** | Detectar fallo técnico y de negocio (§8). | Todas apuntan al topic SNS. |
@@ -168,6 +168,18 @@ un único tipo de mensaje, `alarm.due`, y la vacía un único consumidor:
 
 La cola existe justo para esto: sin ella, un fallo de KAPSO al enviar se perdería en el aire.
 
+**La ventana de 24 h de WhatsApp.** Meta solo permite texto libre durante las 24 h siguientes al último
+mensaje del usuario; pasadas, devuelve el error `131047` y la conversación solo se reabre con un
+*template* aprobado. **KAPSO no permite templates en un número de sandbox**, así que en `dev` no hay
+segundo intento posible y el camino se quitó del código: mantenerlo era fingir que un caso estaba
+cubierto.
+
+Sin ese reintento, un recordatorio fuera de ventana desaparecería sin dejar rastro, así que el
+`notifier` lo marca **`UNDELIVERABLE`** con su motivo, lo saca del índice y cuenta
+`reminders_undeliverable`. Es un estado distinto de `EXPIRED` a propósito: `EXPIRED` significa que ya
+nadie lo quiere, `UNDELIVERABLE` que alguien sí y WhatsApp no lo llevó. Una semana después, esa
+diferencia es lo único que explica por qué no sonó.
+
 **Por qué ya no hay confirmación.** Antes cada nota disparaba un "Anotado ✅" inmediato. Se quitó: repetía en
 WhatsApp lo que el usuario acababa de escribir, y obligaba al bus a rutear `note.processed` hacia la cola de
 salida solo para eso. Con ello desaparecen una regla de EventBridge, un tipo de evento, una rama del
@@ -206,6 +218,7 @@ resumen periódico— es exactamente este flujo, y no necesita reglas para exist
 | Fallo permanente al procesar (media corrupto, respuesta no parseable) | Tras 3 intentos → **DLQ**; la nota queda `status = FAILED`; se emite `note.failed`. |
 | Mensaje en la DLQ | Alarma `DLQNotEmpty` → SNS → correo al operador con el `messageId`. |
 | KAPSO caído al enviar la alarma | Reintentos en `alarm-dispatch`, luego su DLQ; la alarma **no** se marca `SENT`. |
+| Ventana de 24 h cerrada al enviar el recordatorio | Error permanente: no se reintenta. Se marca `UNDELIVERABLE`, sale del índice y cuenta `reminders_undeliverable`; entra en el ratio de `AlarmsNotDelivered`. |
 | Lote SQS con un mensaje malo | `ReportBatchItemFailures`: solo ese mensaje se reintenta, el resto se confirma. |
 | Reproceso horas o días después | El media sigue en S3 aunque la URL de KAPSO haya caducado: el reproceso es siempre posible. |
 | Reproceso | El operador hace *redrive* de la DLQ a la cola principal; la idempotencia evita notas duplicadas (§6.5). |
@@ -232,7 +245,7 @@ duplicarse.
 |---|---|---|---|
 | Evento crudo | `USER#<phoneE164>` | `RAW#<messageId>` | `payload`, `mediaKey`, `receivedAtEpoch` |
 | Nota | `USER#<phoneE164>` | `NOTE#<messageId>` | `noteId`, `title`, `summary`, `tags[]`, `priority`, `status`, `mediaKey`, `confidence`, `createdAtEpoch`, `gsi2pk`, `gsi2sk` |
-| Recordatorio | `USER#<phoneE164>` | `ALARM#<dueAtEpoch>#<alarmId>` | `noteId`, `status` (`PENDING`/`SENT`/`FAILED`), `scheduleName` |
+| Recordatorio | `USER#<phoneE164>` | `ALARM#<dueAtEpoch>#<alarmId>` | `noteId`, `status` (`PENDING`/`SENT`/`EXPIRED`/`UNDELIVERABLE`), `sentAtEpoch`, `undeliverableReason` |
 | Regla | `USER#<phoneE164>` | `RULE#<ruleId>` | `kind`, `params`, `enabled` |
 
 **Teléfono normalizado.** La `pk` usa E.164, pero WhatsApp no siempre manda el prefijo: en el ejemplo de
@@ -334,8 +347,8 @@ avisar al usuario de que su nota no se pudo procesar.
 - Log JSON estructurado con `correlationId`, `messageId`, `userPhoneHash`, `stage`, `component`.
 - Métricas de negocio por **EMF** en el namespace `WhatsAppWatcher`, con dimensiones `stage` y
   `service`: `notes_ingested`, `notes_processed`, `notes_dropped`, `model_latency_ms`, `model_errors`,
-  `model_confidence`, `alarms_attempted`, `alarms_sent`, `alarms_failed`, `reminders_swept`,
-  `reminders_expired`, `digest_runs`, `digest_sent`, `digest_notes`. EMF significa que la métrica sale
+  `model_confidence`, `alarms_attempted`, `alarms_sent`, `alarms_failed`, `reminders_undeliverable`,
+  `reminders_swept`, `reminders_expired`, `digest_runs`, `digest_sent`, `digest_notes`. EMF significa que la métrica sale
   del propio log: no hay `PutMetricData` que pueda fallar en el camino crítico.
 - Un **dashboard** por stage (`whatsapp-watcher-<stage>`), definido como código en
   `infra/monitoring.ts`: webhook y su latencia, notas entrantes y procesadas, profundidad de las
@@ -405,7 +418,7 @@ avisar al usuario de que su nota no se pudo procesar.
 | 1 | ~~**Audio → texto**~~ **RESUELTO** | En Bedrock ningún Claude acepta `AUDIO`, así que habría hecho falta Amazon Transcribe. | Se resolvió **cambiando de proveedor**: OpenAI transcribe con la misma API key (`transcribe` del AI SDK), sin un servicio más ni otro paso en el pipeline. |
 | 2 | **API Gateway vs Function URL** | JohoFit usa Function URL; aquí se pide API Gateway. | API Gateway HTTP API: aporta throttling, access logs y métricas que las alarmas necesitan. |
 | 3 | **EventBridge Scheduler vs barrido** | Scheduler one-time es exacto pero crea un recurso por recordatorio (límites de cuenta). | Scheduler como mecanismo principal + barrido cada 5 min como red de seguridad. |
-| 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado, y **todo** lo que sale es ahora un recordatorio del día siguiente: el problema pasó de ser un caso raro a ser el caso normal. | **Resuelto en código**: ante el 131047 el emisor reintenta el mismo recordatorio como template con una variable de cuerpo. Queda inactivo hasta que `KapsoReminderTemplate` apunte a un template aprobado en KAPSO. |
+| 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado, y **todo** lo que sale es ahora un recordatorio del día siguiente: el problema pasó de ser un caso raro a ser el caso normal. | **Asumido, no resuelto.** KAPSO no permite templates en números de sandbox, así que no hay salida técnica en `dev`: el recordatorio se marca `UNDELIVERABLE` y se cuenta (§6.2). En `production`, con un número propio y un template aprobado de categoría *utility*, se reactiva reintentando el mismo cuerpo como template. |
 | 5 | **Coste del modelo** | Cada nota = 1 invocación. | Cachear por hash de contenido, limitar tamaño de media y poner alarma de presupuesto. |
 | 6 | **Identidad de usuario** | v1 identifica por número de teléfono. | Suficiente para v1; Clerk entra cuando exista panel web. |
 | 7 | **Media grande en el webhook** | Descargar en `ingest` añade latencia y puede topar con el límite de la ventana del webhook. | Timeout y memoria holgados en `ingest`, tope de tamaño configurable y rechazo explícito por encima de él; medir `ingest_media_ms` como métrica propia. |

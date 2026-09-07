@@ -8,8 +8,6 @@ export interface NotifierConfig {
   /** One number per deployment; a multi number setup would carry it in the event. */
   readonly kapsoPhoneNumberId: string;
   readonly tableName: string;
-  readonly reminderTemplate: string;
-  readonly templateLanguage: string;
   /** Fail-closed: outside production only these numbers can be written to. */
   readonly allowedRecipients: readonly string[];
 }
@@ -26,8 +24,6 @@ export function loadNotifierConfig(env: NodeJS.ProcessEnv = process.env): Notifi
     kapsoApiKey: requireEnv(env, "KAPSO_API_KEY"),
     kapsoPhoneNumberId: requireEnv(env, "KAPSO_PHONE_NUMBER_ID"),
     tableName: requireEnv(env, "TABLE_NAME"),
-    reminderTemplate: env.KAPSO_REMINDER_TEMPLATE?.trim() ?? "",
-    templateLanguage: env.KAPSO_TEMPLATE_LANGUAGE?.trim() || "es",
     allowedRecipients: (env.ALLOWED_RECIPIENTS ?? "")
       .split(",")
       .map((entry) => entry.trim())

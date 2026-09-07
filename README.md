@@ -121,10 +121,14 @@ is what lets someone drop the summary without losing the alarms.
 
 ## Known gaps
 
-- A reminder that fires more than 24 hours after the user last wrote needs an approved template.
-  The code path is there and tested: on Meta's code 131047 the sender retries the same reminder as
-  a template with a single body variable. It stays inactive until `KapsoReminderTemplate` names an
-  approved template, so today a next-day reminder still fails.
+- A reminder that fires more than 24 hours after the user last wrote cannot be delivered. Meta only
+  allows free-form text inside that window; reopening it needs a template it has approved, and KAPSO
+  does not allow templates on a sandbox number. So there is no fallback to build in dev, and the one
+  that existed was removed rather than left pretending to cover the case. The reminder is marked
+  `UNDELIVERABLE` with its reason, taken out of the index and counted as `reminders_undeliverable`,
+  which is a different state from `EXPIRED`: one means nobody wanted it any more, the other means
+  somebody did and WhatsApp would not carry it. Production, on a real number with an approved utility
+  template, is where that path comes back.
 - Rule based alarms (silence for N days, urgency) are not built. Evaluating rules before there is any
   way to create one would be a machine with no input. The one rule worth having, the periodic
   summary, is the `digest` lambda and needs no rules to exist.

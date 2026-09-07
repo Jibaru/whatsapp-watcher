@@ -19,8 +19,6 @@ const sender = new KapsoWhatsAppSender(
     apiUrl: config.kapsoApiUrl,
     apiKey: config.kapsoApiKey,
     phoneNumberId: config.kapsoPhoneNumberId,
-    reminderTemplate: config.reminderTemplate,
-    templateLanguage: config.templateLanguage,
   },
   logger,
 );

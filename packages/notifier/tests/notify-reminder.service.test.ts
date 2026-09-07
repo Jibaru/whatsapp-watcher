@@ -4,15 +4,29 @@ import {
   NoopMetrics,
   type DispatchEnvelope,
   type LogFields,
+  type Metrics,
+  type MetricUnit,
   type ReminderDueDetail,
 } from "@watcher/core";
-import type { ReminderRepository } from "../src/repositories/reminder.repository.js";
 import { describe, expect, it } from "bun:test";
+import { OutsideCustomerServiceWindowError } from "../src/domain/errors.js";
+import type { ReminderRepository } from "../src/repositories/reminder.repository.js";
 import type { OutboundMessage, WhatsAppSender } from "../src/repositories/whatsapp.sender.js";
 import { NotifyReminderService } from "../src/services/notify-reminder.service.js";
 
+class RecordingMetrics implements Metrics {
+  readonly counts: Record<string, number> = {};
+
+  count(name: string, value = 1): void {
+    this.counts[name] = (this.counts[name] ?? 0) + value;
+  }
+
+  value(_name: string, _value: number, _unit: MetricUnit): void {}
+}
+
 class FakeReminders implements ReminderRepository {
   readonly marked: string[] = [];
+  readonly undeliverable: { key: string; reason: string }[] = [];
 
   constructor(private readonly pending = true) {}
 
@@ -22,6 +36,10 @@ class FakeReminders implements ReminderRepository {
 
   async markSent(pk: string, sk: string): Promise<void> {
     this.marked.push(`${pk}|${sk}`);
+  }
+
+  async markUndeliverable(pk: string, sk: string, reason: string): Promise<void> {
+    this.undeliverable.push({ key: `${pk}|${sk}`, reason });
   }
 }
 
@@ -140,5 +158,48 @@ describe("NotifyReminderService", () => {
     await expect(service.execute({ envelope: reminder })).rejects.toThrow("KAPSO is down");
     // Marking it before the send would turn a retryable failure into a silent broken promise.
     expect(reminders.marked).toHaveLength(0);
+    expect(reminders.undeliverable).toHaveLength(0);
+  });
+
+  it("records a closed window as undeliverable instead of throwing", async () => {
+    const { service, sender, reminders } = build({ allowedRecipients: ["+51999000001"] });
+    sender.error = new OutsideCustomerServiceWindowError("+51999000001");
+
+    const output = await service.execute({ envelope: reminder });
+
+    // No retry can reopen the window, and this number cannot send templates. Throwing would
+    // only bounce it around the queue before it disappeared with nothing written down.
+    expect(output).toEqual({ sent: false, reason: "outside_customer_service_window" });
+    expect(reminders.undeliverable).toEqual([
+      {
+        key: "USER#+51999000001|ALARM#1788800000#wamid.1",
+        reason: "outside_customer_service_window",
+      },
+    ]);
+    expect(reminders.marked).toHaveLength(0);
+  });
+
+  it("counts a closed window among the failed sends, so the ratio stays honest", async () => {
+    const lines: LogFields[] = [];
+    const logger = new JsonLogger({ service: "notifier" }, (line) => {
+      lines.push(JSON.parse(line) as LogFields);
+    });
+    const sender = new FakeSender();
+    sender.error = new OutsideCustomerServiceWindowError("+51999000001");
+    const metrics = new RecordingMetrics();
+    const service = new NotifyReminderService(
+      sender,
+      new FakeReminders(),
+      logger,
+      metrics,
+      { isProduction: true, allowedRecipients: [] },
+    );
+
+    await service.execute({ envelope: reminder });
+
+    expect(metrics.counts.alarms_attempted).toBe(1);
+    expect(metrics.counts.alarms_failed).toBe(1);
+    expect(metrics.counts.reminders_undeliverable).toBe(1);
+    expect(metrics.counts.alarms_sent).toBeUndefined();
   });
 });

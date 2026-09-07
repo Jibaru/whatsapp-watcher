@@ -5,8 +5,6 @@ export const kapsoApiKey = new sst.Secret("KapsoApiKey");
 export const kapsoPhoneNumberId = new sst.Secret("KapsoPhoneNumberId");
 // Not a secret, but the same mechanism keeps it out of the deploying machine's environment.
 export const allowedRecipients = new sst.Secret("AllowedRecipients", "");
-/** Empty until an approved template exists in KAPSO; then reminders can reopen the window. */
-export const reminderTemplate = new sst.Secret("KapsoReminderTemplate", "");
 
 export const notifier = new sst.aws.Function("NotifierFunction", {
   handler: "packages/notifier/src/main.handler",
@@ -21,7 +19,6 @@ export const notifier = new sst.aws.Function("NotifierFunction", {
     KAPSO_PHONE_NUMBER_ID: kapsoPhoneNumberId.value,
     ALLOWED_RECIPIENTS: allowedRecipients.value,
     TABLE_NAME: table.name,
-    KAPSO_REMINDER_TEMPLATE: reminderTemplate.value,
   },
   permissions: [
     {

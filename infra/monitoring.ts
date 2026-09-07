@@ -436,6 +436,8 @@ const dashboardBody = $resolve({
         business("alarms_attempted", "notifier", "intentados"),
         business("alarms_sent", "notifier", "enviados"),
         business("alarms_failed", "notifier", "fallidos"),
+        // Splits the failures: a closed window is a rule, not an outage.
+        business("reminders_undeliverable", "notifier", "ventana cerrada"),
       ]),
       metric(8, 18, 8, "Resumen diario", [
         business("digest_runs", "digest", "ejecuciones"),

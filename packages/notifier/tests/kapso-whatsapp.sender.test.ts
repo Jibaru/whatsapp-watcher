@@ -8,10 +8,7 @@ interface Call {
   readonly body: Record<string, unknown>;
 }
 
-function build(
-  response: { status: number; payload?: unknown } | Error,
-  options: { template?: string } = {},
-) {
+function build(response: { status: number; payload?: unknown } | Error) {
   const lines: LogFields[] = [];
   const calls: Call[] = [];
   const logger = new JsonLogger({ service: "notifier" }, (line) => {
@@ -26,11 +23,6 @@ function build(
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     calls.push({ url: String(url), headers: init.headers as Record<string, string>, body });
 
-    // A template send always succeeds here: the window error is what triggered it.
-    if (body.type === "template") {
-      return new Response(JSON.stringify({ messages: [{ id: "wamid.tpl" }] }), { status: 200 });
-    }
-
     return new Response(JSON.stringify(response.payload ?? {}), { status: response.status });
   }) as unknown as typeof globalThis.fetch;
 
@@ -39,8 +31,6 @@ function build(
       apiUrl: "https://api.kapso.example",
       apiKey: "test-key",
       phoneNumberId: "597907523413541",
-      reminderTemplate: options.template ?? "",
-      templateLanguage: "es",
     },
     logger,
     fetchImpl,
@@ -99,23 +89,7 @@ describe("KapsoWhatsAppSender", () => {
     expect(error.retryable).toBe(false);
   });
 
-  it("falls back to the template when the window is closed", async () => {
-    const { sender, calls } = build(
-      { status: 400, payload: { error: { code: 131047 } } },
-      { template: "watcher_reminder" },
-    );
-
-    await sender.send(message);
-
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.body.type).toBe("template");
-    expect(calls[1]?.body.template).toMatchObject({
-      name: "watcher_reminder",
-      language: { code: "es" },
-    });
-  });
-
-  it("does not fall back while no approved template is configured", async () => {
+  it("never makes a second attempt, since a sandbox number cannot send templates", async () => {
     const { sender, calls } = build({ status: 400, payload: { error: { code: 131047 } } });
 
     const error = await sender.send(message).catch((e) => e);

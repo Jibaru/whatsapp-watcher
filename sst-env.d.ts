@@ -42,10 +42,6 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
-    "KapsoReminderTemplate": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
     "KapsoWebhookSecret": {
       "type": "sst.sst.Secret"
       "value": string

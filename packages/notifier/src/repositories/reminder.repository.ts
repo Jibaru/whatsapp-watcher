@@ -5,6 +5,7 @@ import type { Logger } from "@watcher/core";
 export interface ReminderRepository {
   isPending(pk: string, sk: string): Promise<boolean>;
   markSent(pk: string, sk: string): Promise<void>;
+  markUndeliverable(pk: string, sk: string, reason: string): Promise<void>;
 }
 
 export class DynamoReminderRepository implements ReminderRepository {
@@ -53,5 +54,29 @@ export class DynamoReminderRepository implements ReminderRepository {
 
       throw error;
     }
+  }
+
+  /**
+   * A terminal state of its own. EXPIRED means nobody wants it any more; this means somebody
+   * did and WhatsApp would not carry it, which is a different thing to read a week later.
+   */
+  async markUndeliverable(pk: string, sk: string, reason: string): Promise<void> {
+    await this.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { pk, sk },
+        UpdateExpression:
+          "SET #status = :undeliverable, undeliverableReason = :reason, failedAtEpoch = :now" +
+          " REMOVE gsi1pk, gsi1sk",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: {
+          ":undeliverable": "UNDELIVERABLE",
+          ":reason": reason,
+          ":now": Math.floor(Date.now() / 1000),
+        },
+      }),
+    );
+
+    this.logger.warn("reminder_undeliverable", { pk, sk, reason });
   }
 }

@@ -11,9 +11,6 @@ export interface KapsoSenderOptions {
   readonly apiUrl: string;
   readonly apiKey: string;
   readonly phoneNumberId: string;
-  /** Approved template with a single body variable. Empty until one exists in KAPSO. */
-  readonly reminderTemplate: string;
-  readonly templateLanguage: string;
 }
 
 type Fetch = typeof globalThis.fetch;
@@ -25,26 +22,13 @@ export class KapsoWhatsAppSender implements WhatsAppSender {
     private readonly fetchImpl: Fetch = globalThis.fetch,
   ) {}
 
+  /**
+   * Free-form only. Reopening a closed window needs a template approved by Meta, and KAPSO
+   * does not allow templates on a sandbox number, so there is no second attempt to make: the
+   * caller decides what to do with a closed window.
+   */
   async send(message: OutboundMessage): Promise<void> {
-    try {
-      await this.post(textPayload(message));
-    } catch (error) {
-      if (!(error instanceof OutsideCustomerServiceWindowError) || !this.canUseTemplate()) {
-        throw error;
-      }
-
-      // Everything sent now is a reminder, and a reminder for tomorrow is outside the window
-      // by definition; only an approved template can reopen the conversation.
-      this.logger.info("falling_back_to_template", { template: this.options.reminderTemplate });
-
-      await this.post(
-        templatePayload(message, this.options.reminderTemplate, this.options.templateLanguage),
-      );
-    }
-  }
-
-  private canUseTemplate(): boolean {
-    return this.options.reminderTemplate !== "";
+    await this.post(textPayload(message));
   }
 
   private async post(payload: Record<string, unknown>): Promise<void> {
@@ -103,23 +87,6 @@ function textPayload(message: OutboundMessage): Record<string, unknown> {
   };
 }
 
-function templatePayload(
-  message: OutboundMessage,
-  name: string,
-  language: string,
-): Record<string, unknown> {
-  return {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: recipientOf(message),
-    type: "template",
-    template: {
-      name,
-      language: { code: language },
-      components: [{ type: "body", parameters: [{ type: "text", text: message.body }] }],
-    },
-  };
-}
 
 async function readBody(response: Response): Promise<unknown> {
   try {

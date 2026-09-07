@@ -1,4 +1,5 @@
 import type { DispatchEnvelope, Logger, Metrics, ReminderDueDetail } from "@watcher/core";
+import { OutsideCustomerServiceWindowError } from "../domain/errors.js";
 import type { ReminderRepository } from "../repositories/reminder.repository.js";
 import type { WhatsAppSender } from "../repositories/whatsapp.sender.js";
 
@@ -57,6 +58,10 @@ export class NotifyReminderService {
       // Counted here so the ratio covers every reason a send did not make it, retryable or not.
       this.metrics.count("alarms_failed");
 
+      if (error instanceof OutsideCustomerServiceWindowError) {
+        return await this.giveUp(reminder, error.code);
+      }
+
       throw error;
     }
 
@@ -71,6 +76,22 @@ export class NotifyReminderService {
     });
 
     return { sent: true };
+  }
+
+  /**
+   * WhatsApp will not carry this one and no retry changes that: a closed window only reopens
+   * when the user writes again, and this number cannot send templates. Recording it is the
+   * whole point, since otherwise a reminder the user asked for vanishes without a trace and
+   * the sweep would keep re-enqueueing it until it expired for the wrong reason.
+   */
+  private async giveUp(
+    reminder: ReminderDueDetail,
+    reason: string,
+  ): Promise<NotifyReminderOutput> {
+    this.metrics.count("reminders_undeliverable");
+    await this.reminders.markUndeliverable(reminder.pk, reminder.sk, reason);
+
+    return { sent: false, reason };
   }
 
   /** Matches either form, so the allowlist can be written the way a human would. */
