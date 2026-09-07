@@ -4,6 +4,9 @@
     "": {
       "name": "whatsapp-watcher",
       "devDependencies": {
+        "@aws-sdk/client-dynamodb": "^3.1127.0",
+        "@aws-sdk/client-s3": "^3.1127.0",
+        "@aws-sdk/lib-dynamodb": "^3.1127.0",
         "@types/bun": "^1.2.0",
         "@types/node": "^24.13.3",
         "sst": "^4.17.1",

@@ -13,9 +13,13 @@
     "secret:set": "sst secret set KapsoWebhookSecret --stage dev",
     "typecheck": "tsc --noEmit",
     "test": "bun test packages",
+    "test:integration": "sst shell --stage dev -- bun test integration",
     "webhook:test": "bun packages/ingest/scripts/send-test-webhook.ts"
   },
   "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1127.0",
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@aws-sdk/lib-dynamodb": "^3.1127.0",
     "@types/bun": "^1.2.0",
     "@types/node": "^24.13.3",
     "sst": "^4.17.1",

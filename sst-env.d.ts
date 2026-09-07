@@ -14,9 +14,17 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "MediaBucket": {
+      "name": string
+      "type": "sst.aws.Bucket"
+    }
     "WatcherApi": {
       "type": "sst.aws.ApiGatewayV2"
       "url": string
+    }
+    "WatcherTable": {
+      "name": string
+      "type": "sst.aws.Dynamo"
     }
   }
 }

@@ -12,6 +12,7 @@ packages/
   core/     @watcher/core     logger, hash, helpers de entorno
   ingest/   @watcher/ingest   lambda del webhook de KAPSO
 infra/      un fichero por lambda (api.ts, ingest.ts), importados desde sst.config.ts
+integration/ tests contra el stage dev real (fuera de packages: cruzan varios modulos)
 docs/       enunciado y diagrama
 ```
 
@@ -52,7 +53,8 @@ handler     HTTP, formato del proveedor, validación Zod → construye el DTO de
 
 ```bash
 bun install
-bun test packages          # bun run test
+bun test packages          # bun run test, unitarios y sin red
+bun run test:integration   # sst shell --stage dev, golpea AWS de verdad
 bun run typecheck          # tsc --noEmit, cubre packages, infra y sst.config.ts
 bun run secret:set         # obligatorio antes del primer deploy
 bun run deploy             # sst deploy --stage dev

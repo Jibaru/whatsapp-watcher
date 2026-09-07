@@ -22,7 +22,9 @@
     "packages/*/src",
     "packages/*/tests",
     "packages/*/scripts",
+    "integration",
     "infra",
+    "sst-env.d.ts",
     "sst.config.ts"
   ]
 }
