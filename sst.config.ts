@@ -26,28 +26,8 @@ export default $config({
   },
 
   async run() {
-    // Se define con: bun run secret:set
-    const kapsoWebhookSecret = new sst.Secret("KapsoWebhookSecret");
-
-    const api = new sst.aws.ApiGatewayV2("WatcherApi", {
-      accessLog: { retention: "2 weeks" },
-    });
-
-    const ingest = new sst.aws.Function("IngestFunction", {
-      handler: "src/main.handler",
-      runtime: "nodejs24.x",
-      memory: "512 MB",
-      // Holgado a propósito: aquí entrará la descarga del media (ver docs/ENUNCIADO.md §5.1).
-      timeout: "20 seconds",
-      logging: { retention: "2 weeks" },
-      environment: {
-        APP_STAGE: $app.stage,
-        KAPSO_WEBHOOK_SECRET: kapsoWebhookSecret.value,
-      },
-    });
-
-    api.route("POST /webhooks/kapso", ingest.arn);
-    api.route("GET /health", ingest.arn);
+    const { api } = await import("./infra/api");
+    const { ingest } = await import("./infra/ingest");
 
     return {
       api: api.url,

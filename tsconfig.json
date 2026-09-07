@@ -1,11 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "moduleDetection": "force",
-    "types": ["node", "bun"],
+    "types": [
+      "node",
+      "bun"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -13,5 +18,10 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "tests", "sst.config.ts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/tests",
+    "infra",
+    "sst.config.ts"
+  ]
 }
