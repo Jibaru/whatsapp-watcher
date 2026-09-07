@@ -38,6 +38,10 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Function"
     }
+    "OpenAiApiKey": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "OutboxFunction": {
       "name": string
       "type": "sst.aws.Function"

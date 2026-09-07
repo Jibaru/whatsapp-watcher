@@ -15,10 +15,11 @@ const NoteSchema = z.object({
   tags: z.array(z.string()).describe("Up to four lowercase tags"),
   priority: z.enum(["low", "normal", "high"]),
   confidence: z.number().describe("0 to 1, how sure you are of the reading"),
+  // Nullable, not optional: OpenAI structured outputs demand every key in required.
   dueAt: z
     .string()
-    .optional()
-    .describe("ISO 8601 instant when the user asked to be reminded. Omit if none."),
+    .nullable()
+    .describe("ISO 8601 instant when the user asked to be reminded. null if there is none."),
 });
 
 export interface OpenAiAnalyzerOptions {
@@ -56,7 +57,7 @@ export class OpenAiNoteAnalyzer implements NoteAnalyzer {
         outputTokens: result.usage?.outputTokens,
       });
 
-      return { ...result.object, transcript };
+      return { ...result.object, dueAt: result.object.dueAt ?? undefined, transcript };
     } catch (error) {
       throw toAnalyzerError(error);
     }

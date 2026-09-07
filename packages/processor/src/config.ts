@@ -12,7 +12,7 @@ export interface ProcessorConfig {
   readonly defaultTimezone: string;
 }
 
-const DEFAULT_MODEL_ID = "gpt-5-mini";
+const DEFAULT_MODEL_ID = "gpt-4.1-mini";
 const DEFAULT_TRANSCRIPTION_MODEL_ID = "whisper-1";
 const DEFAULT_TIMEZONE = "America/Lima";
 

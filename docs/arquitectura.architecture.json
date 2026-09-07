@@ -5,67 +5,331 @@
     "title": "WhatsApp Watcher — Ingesta y proceso",
     "output": "arquitectura.html",
     "quality_profile": "showcase",
-    "viewBox": [1370, 540],
+    "viewBox": [
+      1370,
+      540
+    ],
     "views": [
       {
         "id": "captura",
         "label": "Captura",
-        "focus": ["usuario", "kapso", "apigw", "ingest", "media", "dynamo"],
+        "focus": [
+          "usuario",
+          "kapso",
+          "apigw",
+          "ingest",
+          "media",
+          "dynamo"
+        ],
         "note": "El webhook guarda el media y escribe el evento crudo. Una sola escritura y responde."
       },
       {
         "id": "outbox",
         "label": "Outbox",
-        "focus": ["dynamo", "outbox", "bus", "queue"],
+        "focus": [
+          "dynamo",
+          "outbox",
+          "bus",
+          "queue"
+        ],
         "note": "El stream de DynamoDB emite lo ya confirmado: el evento no puede perderse ni ser fantasma."
       },
       {
         "id": "proceso",
         "label": "Proceso",
-        "focus": ["queue", "processor", "media", "bedrock", "dynamo"],
-        "note": "El procesador lee el media de S3, llama a Bedrock y escribe la nota estructurada."
+        "focus": [
+          "queue",
+          "processor",
+          "media",
+          "openai",
+          "dynamo"
+        ],
+        "note": "El procesador lee el media de S3, lo manda a OpenAI (texto, imagen o audio) y escribe la nota."
       },
       {
         "id": "fallo",
         "label": "Fallo",
-        "focus": ["queue", "dlq", "processor"],
+        "focus": [
+          "queue",
+          "dlq",
+          "processor"
+        ],
         "note": "Tres intentos y a la DLQ; el resto del lote sigue su curso."
       }
     ]
   },
   "components": [
-    { "id": "usuario", "type": "external", "label": "Usuario", "sublabel": "WhatsApp", "pos": [50, 80], "size": [150, 60] },
-    { "id": "kapso", "type": "external", "label": "KAPSO", "sublabel": "WhatsApp Business", "pos": [275, 80], "size": [150, 60] },
-    { "id": "apigw", "type": "cloud", "label": "API Gateway", "sublabel": "HTTP API", "pos": [500, 80], "size": [150, 60], "tag": "POST /webhooks/kapso" },
-    { "id": "ingest", "type": "backend", "label": "Lambda ingest", "sublabel": "firma, media, escritura", "pos": [725, 80], "size": [150, 60] },
-    { "id": "media", "type": "cloud", "label": "S3", "sublabel": "media privado", "pos": [950, 80], "size": [150, 60] },
-    { "id": "dynamo", "type": "database", "label": "DynamoDB", "sublabel": "WatcherMain", "pos": [725, 225], "size": [150, 60], "tag": "single-table, sin TTL" },
-    { "id": "processor", "type": "backend", "label": "Lambda processor", "sublabel": "reintentos parciales", "pos": [950, 225], "size": [150, 60] },
-    { "id": "bedrock", "type": "cloud", "label": "Bedrock", "sublabel": "transcribe y estructura", "pos": [1175, 225], "size": [150, 60] },
-    { "id": "dlq", "type": "messagebus", "label": "SQS DLQ", "sublabel": "intentos agotados", "pos": [50, 370], "size": [150, 60] },
-    { "id": "queue", "type": "messagebus", "label": "SQS", "sublabel": "note-processing", "pos": [275, 370], "size": [150, 60] },
-    { "id": "bus", "type": "messagebus", "label": "EventBridge", "sublabel": "bus + Scheduler", "pos": [500, 370], "size": [150, 60] },
-    { "id": "outbox", "type": "backend", "label": "Lambda outbox", "sublabel": "stream a evento", "pos": [725, 370], "size": [150, 60], "tag": "una sola fuente de verdad" }
+    {
+      "id": "usuario",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "WhatsApp",
+      "pos": [
+        50,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "kapso",
+      "type": "external",
+      "label": "KAPSO",
+      "sublabel": "WhatsApp Business",
+      "pos": [
+        275,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "apigw",
+      "type": "cloud",
+      "label": "API Gateway",
+      "sublabel": "HTTP API",
+      "pos": [
+        500,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "POST /webhooks/kapso"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Lambda ingest",
+      "sublabel": "firma, media, escritura",
+      "pos": [
+        725,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "media",
+      "type": "cloud",
+      "label": "S3",
+      "sublabel": "media privado",
+      "pos": [
+        950,
+        80
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "dynamo",
+      "type": "database",
+      "label": "DynamoDB",
+      "sublabel": "WatcherMain",
+      "pos": [
+        725,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "single-table, sin TTL"
+    },
+    {
+      "id": "processor",
+      "type": "backend",
+      "label": "Lambda processor",
+      "sublabel": "reintentos parciales",
+      "pos": [
+        950,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "openai",
+      "type": "external",
+      "label": "OpenAI",
+      "sublabel": "transcribe y estructura",
+      "pos": [
+        1175,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "AI SDK · fuera de AWS"
+    },
+    {
+      "id": "dlq",
+      "type": "messagebus",
+      "label": "SQS DLQ",
+      "sublabel": "intentos agotados",
+      "pos": [
+        50,
+        370
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "queue",
+      "type": "messagebus",
+      "label": "SQS",
+      "sublabel": "note-processing",
+      "pos": [
+        275,
+        370
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "bus",
+      "type": "messagebus",
+      "label": "EventBridge",
+      "sublabel": "bus + Scheduler",
+      "pos": [
+        500,
+        370
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "outbox",
+      "type": "backend",
+      "label": "Lambda outbox",
+      "sublabel": "stream a evento",
+      "pos": [
+        725,
+        370
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "una sola fuente de verdad"
+    }
   ],
   "boundaries": [
     {
       "kind": "security-group",
       "label": "webhook verificado con firma HMAC",
-      "wraps": ["apigw", "ingest"]
+      "wraps": [
+        "apigw",
+        "ingest"
+      ]
     }
   ],
   "connections": [
-    { "id": "nota-entrante", "from": "usuario", "to": "kapso", "label": "texto · foto · audio", "variant": "emphasis", "labelDy": 56 },
-    { "id": "webhook", "from": "kapso", "to": "apigw", "label": "webhook", "variant": "emphasis" },
-    { "id": "invoca-ingest", "from": "apigw", "to": "ingest", "variant": "emphasis" },
-    { "id": "guarda-media", "from": "ingest", "to": "media", "label": "media original" },
-    { "id": "evento-crudo", "from": "ingest", "to": "dynamo", "label": "PutItem idempotente", "variant": "emphasis", "labelAt": [700, 190] },
-    { "id": "lee-media", "from": "media", "to": "processor", "label": "lee media", "labelAt": [1090, 190] },
-    { "id": "guarda-nota", "from": "processor", "to": "dynamo", "label": "nota", "variant": "emphasis" },
-    { "id": "stream", "from": "dynamo", "to": "outbox", "label": "stream", "variant": "emphasis", "labelAt": [845, 330] },
-    { "id": "emite-evento", "from": "outbox", "to": "bus", "label": "note.received", "variant": "emphasis" },
-    { "id": "regla-a-cola", "from": "bus", "to": "queue", "label": "regla", "variant": "emphasis" },
-    { "id": "redrive", "from": "queue", "to": "dlq", "label": "3 intentos", "variant": "dashed" },
+    {
+      "id": "nota-entrante",
+      "from": "usuario",
+      "to": "kapso",
+      "label": "texto · foto · audio",
+      "variant": "emphasis",
+      "labelDy": 56
+    },
+    {
+      "id": "webhook",
+      "from": "kapso",
+      "to": "apigw",
+      "label": "webhook",
+      "variant": "emphasis"
+    },
+    {
+      "id": "invoca-ingest",
+      "from": "apigw",
+      "to": "ingest",
+      "variant": "emphasis"
+    },
+    {
+      "id": "guarda-media",
+      "from": "ingest",
+      "to": "media",
+      "label": "media original"
+    },
+    {
+      "id": "evento-crudo",
+      "from": "ingest",
+      "to": "dynamo",
+      "label": "PutItem idempotente",
+      "variant": "emphasis",
+      "labelAt": [
+        700,
+        190
+      ]
+    },
+    {
+      "id": "lee-media",
+      "from": "media",
+      "to": "processor",
+      "label": "lee media",
+      "labelAt": [
+        1090,
+        190
+      ]
+    },
+    {
+      "id": "guarda-nota",
+      "from": "processor",
+      "to": "dynamo",
+      "label": "nota",
+      "variant": "emphasis"
+    },
+    {
+      "id": "stream",
+      "from": "dynamo",
+      "to": "outbox",
+      "label": "stream",
+      "variant": "emphasis",
+      "labelAt": [
+        845,
+        330
+      ]
+    },
+    {
+      "id": "emite-evento",
+      "from": "outbox",
+      "to": "bus",
+      "label": "note.received",
+      "variant": "emphasis"
+    },
+    {
+      "id": "regla-a-cola",
+      "from": "bus",
+      "to": "queue",
+      "label": "regla",
+      "variant": "emphasis"
+    },
+    {
+      "id": "redrive",
+      "from": "queue",
+      "to": "dlq",
+      "label": "3 intentos",
+      "variant": "dashed"
+    },
     {
       "id": "consume",
       "from": "queue",
@@ -73,9 +337,23 @@
       "variant": "emphasis",
       "fromSide": "bottom",
       "toSide": "bottom",
-      "via": [[350, 480], [1025, 480]]
+      "via": [
+        [
+          350,
+          480
+        ],
+        [
+          1025,
+          480
+        ]
+      ]
     },
-    { "id": "infiere", "from": "processor", "to": "bedrock", "label": "Converse" }
+    {
+      "id": "infiere",
+      "from": "processor",
+      "to": "openai",
+      "label": "generateObject"
+    }
   ],
   "cards": [
     {
@@ -101,7 +379,7 @@
       "title": "Proceso",
       "items": [
         "SQS absorbe picos y reintenta; a los tres intentos, DLQ",
-        "El procesador lee el media de S3 con la clave del evento",
+        "El procesador transcribe el audio y analiza la imagen en la misma API",
         "El evento lleva punteros, no datos: la verdad vive en DynamoDB"
       ]
     }

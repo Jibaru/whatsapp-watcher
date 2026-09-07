@@ -28,7 +28,7 @@ export class ModelUnavailableError extends TransientError {
 /** Access denied, a bad model id, a malformed request: retrying changes nothing. */
 export class ModelRejectedError extends PermanentError {
   constructor(reason: string, cause: unknown) {
-    super("model_rejected", `Bedrock rejected the call for good: ${reason}`, { cause });
+    super("model_rejected", `The model rejected the call for good: ${reason}`, { cause });
   }
 }
 
