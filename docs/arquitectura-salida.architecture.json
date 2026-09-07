@@ -15,13 +15,14 @@
         "label": "Vuelta al usuario",
         "focus": [
           "processor",
+          "scheduler",
           "bus",
           "dispatch",
           "notifier",
           "kapso",
           "usuario"
         ],
-        "note": "La confirmación y el recordatorio salen por la misma cola y el mismo consumidor."
+        "note": "La confirmación sale por el bus y el recordatorio por el Scheduler, pero comparten cola y consumidor."
       },
       {
         "id": "fallo-salida",
@@ -65,7 +66,7 @@
       "id": "bus",
       "type": "messagebus",
       "label": "EventBridge",
-      "sublabel": "bus + Scheduler",
+      "sublabel": "bus",
       "pos": [
         275,
         80
@@ -182,12 +183,27 @@
       "sublabel": "alarmas sin enviar",
       "pos": [
         500,
-        225
+        370
       ],
       "size": [
         150,
         60
       ]
+    },
+    {
+      "id": "scheduler",
+      "type": "cloud",
+      "label": "EventBridge Scheduler",
+      "sublabel": "uno por recordatorio",
+      "pos": [
+        275,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "se borra al dispararse"
     }
   ],
   "connections": [
@@ -202,7 +218,20 @@
       "id": "regla-salida",
       "from": "bus",
       "to": "dispatch",
-      "label": "regla",
+      "label": "note.processed",
+      "variant": "emphasis"
+    },
+    {
+      "id": "programa",
+      "from": "processor",
+      "to": "scheduler",
+      "label": "programa el recordatorio"
+    },
+    {
+      "id": "alarma-vencida",
+      "from": "scheduler",
+      "to": "dispatch",
+      "label": "alarm.due",
       "variant": "emphasis"
     },
     {
@@ -252,11 +281,11 @@
       "via": [
         [
           125,
-          470
+          490
         ],
         [
           800,
-          470
+          490
         ]
       ],
       "labelAt": [
@@ -284,9 +313,9 @@
       "dot": "violet",
       "title": "Una sola salida",
       "items": [
-        "El bus se reutiliza: note.processed y alarm.due van a la misma cola",
-        "La confirmación inmediata y el recordatorio comparten consumidor",
-        "El recordatorio programado lo dispara EventBridge Scheduler"
+        "La confirmación sale por el bus; el recordatorio, por EventBridge Scheduler",
+        "Ambos caen en la misma cola con el mismo sobre: un solo consumidor",
+        "Un schedule por recordatorio, que se borra solo al dispararse"
       ]
     },
     {

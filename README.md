@@ -46,7 +46,7 @@ packages/outbox/     DynamoDB stream to EventBridge
 packages/processor/  OpenAI analysis
 packages/notifier/   WhatsApp delivery
 infra/               one file per lambda, imported from sst.config.ts
-integration/         tests against the deployed dev stage
+integration/         tests against the deployed dev stage, one file per behaviour
 docs/                design document and diagrams
 ```
 
@@ -72,7 +72,7 @@ bun run secret:phone-id    # the phone_number_id the webhook payload carries
 bun run allowlist:set      # your own number in E.164 while testing
 bun run ops-emails:set     # comma separated addresses for the alarms
 bun run deploy             # sst deploy --stage dev
-bun run test:integration   # runs against the deployed stage
+bun run test:integration   # runs against the deployed stage, about six minutes
 ```
 
 A secret with no value stops the deploy rather than shipping a lambda that cannot work.
