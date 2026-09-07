@@ -38,6 +38,31 @@ function inboundMessage(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const imageMessage = {
+  message: {
+    id: "wamid.HBgTUEUuMTYx",
+    type: "image",
+    from: "982705024",
+    kapso: {
+      has_media: true,
+      media_url: "https://app.kapso.example/blobs/image_1a1f.jpeg",
+      content: "buenas Image attached (image_1a1f.jpeg) [Size: 73.9 KB | Type: image/jpeg] URL: ...",
+      media_data: {
+        url: "https://app.kapso.example/blobs/image_1a1f.jpeg",
+        filename: "image_1a1f.jpeg",
+        byte_size: 75681,
+        content_type: "image/jpeg",
+      },
+      message_type_data: { caption: "buenas", has_media: true },
+    },
+    image: { id: "2819309705107520", caption: "buenas", mime_type: "image/jpeg" },
+    timestamp: "1788747742",
+  },
+  conversation: { id: "d41530b9", phone_number: "982705024", contact_name: "x" },
+  phone_number_id: "597907523413541",
+  is_new_conversation: false,
+};
+
 function post(payload: unknown, options: { signature?: string | null } = {}) {
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -112,21 +137,27 @@ describe("ingest api", () => {
     expect(repository.saved[0]?.text).toBe("Hello");
   });
 
-  it("reads the media url out of the kapso envelope", async () => {
+  it("takes the caption as text on media messages, not the synthesized summary", async () => {
+    const { app, repository } = build();
+
+    await app.request(post(imageMessage));
+    const saved = repository.saved[0];
+
+    expect(saved?.kind).toBe("image");
+    expect(saved?.text).toBe("buenas");
+    expect(saved?.media?.url).toBe("https://app.kapso.example/blobs/image_1a1f.jpeg");
+    expect(saved?.media?.mimeType).toBe("image/jpeg");
+    expect(saved?.media?.sizeBytes).toBe(75681);
+  });
+
+  it("falls back to the conversation phone when the message carries no sender", async () => {
     const { app, repository } = build();
 
     await app.request(
-      post(
-        inboundMessage({
-          type: "audio",
-          text: undefined,
-          kapso: { has_media: true, media_url: "https://kapso.example/media/1.ogg" },
-        }),
-      ),
+      post({ message: { id: "wamid.1" }, conversation: { phone_number: "982705024" } }),
     );
 
-    expect(repository.saved[0]?.kind).toBe("audio");
-    expect(repository.saved[0]?.media?.url).toBe("https://kapso.example/media/1.ogg");
+    expect(repository.saved[0]?.from).toBe("982705024");
   });
 
   it("accepts unknown fields: the payload carries more than we map", async () => {

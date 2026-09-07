@@ -5,6 +5,7 @@ export type InboundMessageKind = "text" | "image" | "audio" | "unknown";
 export interface InboundMedia {
   readonly url: string;
   readonly mimeType?: string;
+  readonly sizeBytes?: number;
 }
 
 export interface InboundMessageProps {
@@ -59,6 +60,8 @@ export class InboundMessage {
       fromHash: hashIdentifier(this.from),
       kind: this.kind,
       hasMedia: this.hasMedia(),
+      mediaMimeType: this.media?.mimeType,
+      mediaSizeBytes: this.media?.sizeBytes,
       textLength: this.text?.length ?? 0,
       receivedAt: this.receivedAt.toISOString(),
     };

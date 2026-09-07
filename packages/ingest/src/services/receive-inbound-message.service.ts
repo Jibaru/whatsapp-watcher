@@ -10,6 +10,7 @@ export interface ReceiveInboundMessageInput {
   readonly text?: string;
   readonly mediaUrl?: string;
   readonly mediaMimeType?: string;
+  readonly mediaSizeBytes?: number;
   readonly receivedAt: Date;
   readonly rawPayload: unknown;
 }
@@ -60,7 +61,13 @@ export class ReceiveInboundMessageService {
       kind: normalizeKind(input.kind),
       receivedAt: input.receivedAt,
       text: input.text,
-      media: input.mediaUrl ? { url: input.mediaUrl, mimeType: input.mediaMimeType } : undefined,
+      media: input.mediaUrl
+        ? {
+            url: input.mediaUrl,
+            mimeType: input.mediaMimeType,
+            sizeBytes: input.mediaSizeBytes,
+          }
+        : undefined,
     });
 
     const outcome = await this.repository.save(message);

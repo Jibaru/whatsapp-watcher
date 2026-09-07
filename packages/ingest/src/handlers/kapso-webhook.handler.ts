@@ -2,27 +2,36 @@ import { createRoute, z, type RouteHandler } from "@hono/zod-openapi";
 import type { ReceiveInboundMessageService } from "../services/receive-inbound-message.service.js";
 
 /**
- * Shape of whatsapp.message.received. Every field stays optional and unknown ones pass
- * through: a payload we cannot read must be logged, never dropped. Buffering must stay off
- * in KAPSO, or the body arrives as a batch envelope instead of a single message.
+ * Shape of whatsapp.message.received, derived from real traffic. Every field stays optional
+ * and unknown ones pass through: a payload we cannot read must be logged, never dropped.
+ * Buffering must stay off in KAPSO, or the body arrives as a batch envelope instead.
  */
+const KapsoBlockSchema = z.looseObject({
+  has_media: z.boolean().optional(),
+  media_url: z.string().optional(),
+  media_data: z
+    .looseObject({
+      url: z.string().optional(),
+      filename: z.string().optional(),
+      byte_size: z.number().optional(),
+      content_type: z.string().optional(),
+    })
+    .optional(),
+  message_type_data: z.looseObject({ caption: z.string().optional() }).optional(),
+});
+
 const KapsoMessageSchema = z.looseObject({
   id: z.string().optional(),
   type: z.string().optional(),
   from: z.string().optional(),
   text: z.looseObject({ body: z.string().optional() }).optional(),
-  kapso: z
-    .looseObject({
-      has_media: z.boolean().optional(),
-      media_url: z.string().optional(),
-      content: z.string().optional(),
-    })
-    .optional(),
+  kapso: KapsoBlockSchema.optional(),
 });
 
 export const KapsoWebhookBodySchema = z
   .looseObject({
     message: KapsoMessageSchema.optional(),
+    conversation: z.looseObject({ phone_number: z.string().optional() }).optional(),
   })
   .openapi("KapsoWebhookBody");
 
@@ -61,13 +70,18 @@ export function makeKapsoWebhookHandler(
   return async (c) => {
     const body = c.req.valid("json");
     const message = body.message;
+    const kapso = message?.kapso;
 
     const result = await service.execute({
       messageId: message?.id,
-      from: message?.from,
+      from: message?.from ?? body.conversation?.phone_number,
       kind: message?.type,
-      text: message?.text?.body ?? message?.kapso?.content,
-      mediaUrl: message?.kapso?.media_url,
+      // kapso.content is a synthesized summary for media ("caption Image attached (...) URL: ..."),
+      // so the caption is the only faithful text on those messages.
+      text: message?.text?.body ?? kapso?.message_type_data?.caption,
+      mediaUrl: kapso?.media_data?.url ?? kapso?.media_url,
+      mediaMimeType: kapso?.media_data?.content_type,
+      mediaSizeBytes: kapso?.media_data?.byte_size,
       receivedAt: clock(),
       rawPayload: body,
     });
