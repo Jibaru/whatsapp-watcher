@@ -204,6 +204,20 @@ if (isProduction) {
   });
 }
 
+// 10b. Closes the blind spot: a permanent error is acknowledged on purpose, so it never
+// reaches a DLQ and no queue based alarm can see the note that was dropped.
+alarm("NotesDropped", {
+  alarmDescription: "A note was discarded by a permanent error and will not be retried",
+  namespace: NAMESPACE,
+  metricName: "notes_dropped",
+  dimensions: businessDimensions("processor"),
+  statistic: "Sum",
+  period: 900,
+  evaluationPeriods: 1,
+  threshold: 1,
+  comparisonOperator: "GreaterThanOrEqualToThreshold",
+});
+
 // 11. Notes are being produced but not reaching the user.
 alarm("AlarmsNotDelivered", {
   alarmDescription: "More than 10% of the notifications failed in the last hour",

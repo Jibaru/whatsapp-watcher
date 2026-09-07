@@ -107,7 +107,7 @@ bun run webhook:test <url> <secret>
 - Replies always go to the full international number. A national one lets WhatsApp fill in the
   country of the sending account, which once delivered a note to a stranger in another country, so
   the sandbox test number must be registered with its country code.
-- A permanent failure drops the note quietly. The raw item should be left as `FAILED` and a
-  `note.failed` event emitted, as the design says.
+- Nothing consumes `note.failed` yet. The raw item is marked FAILED, the event is published and the
+  NotesDropped alarm fires, but the user is never told their note could not be processed.
 - Note content leaves AWS: text, images and audio are sent to OpenAI. Swapping that for a model
   inside the account means one new `NoteAnalyzer` implementation.

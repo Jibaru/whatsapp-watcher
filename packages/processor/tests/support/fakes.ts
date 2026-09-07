@@ -13,8 +13,10 @@ import type {
 } from "../../src/repositories/note-analyzer.js";
 import type {
   NoteEventPublisher,
+  PublishNoteFailedCommand,
   PublishNoteProcessedCommand,
 } from "../../src/repositories/note-event.publisher.js";
+import type { FailedMessageRepository } from "../../src/repositories/failed-message.repository.js";
 import type { NoteRepository } from "../../src/repositories/note.repository.js";
 import type { Reminder, ReminderRepository } from "../../src/repositories/reminder.repository.js";
 import type { ReminderScheduler } from "../../src/repositories/reminder.scheduler.js";
@@ -93,9 +95,22 @@ export class FakeNoteRepository implements NoteRepository {
 
 export class FakeNotePublisher implements NoteEventPublisher {
   readonly published: PublishNoteProcessedCommand[] = [];
+  readonly failures: PublishNoteFailedCommand[] = [];
 
   async publishNoteProcessed(command: PublishNoteProcessedCommand): Promise<void> {
     this.published.push(command);
+  }
+
+  async publishNoteFailed(command: PublishNoteFailedCommand): Promise<void> {
+    this.failures.push(command);
+  }
+}
+
+export class FakeFailedMessages implements FailedMessageRepository {
+  readonly marked: { pk: string; sk: string; code: string }[] = [];
+
+  async markFailed(pk: string, sk: string, code: string): Promise<void> {
+    this.marked.push({ pk, sk, code });
   }
 }
 

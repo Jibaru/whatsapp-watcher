@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { getLogContext, type Logger, type Metrics, type NoteReceivedDetail } from "@watcher/core";
+import {
+  describeError,
+  getLogContext,
+  isRetryable,
+  type Logger,
+  type Metrics,
+  type NoteReceivedDetail,
+} from "@watcher/core";
 import { NoAnalyzableContentError, UnsupportedMediaError } from "../domain/errors.js";
 import { Note } from "../domain/note.js";
 import type { InboundMessageReader, SourceMessage } from "../repositories/inbound-message.reader.js";
 import type { MediaReader } from "../repositories/media.reader.js";
 import type { NoteAnalyzer } from "../repositories/note-analyzer.js";
 import type { NoteEventPublisher } from "../repositories/note-event.publisher.js";
+import type { FailedMessageRepository } from "../repositories/failed-message.repository.js";
 import type { NoteRepository } from "../repositories/note.repository.js";
 import type { ReminderRepository } from "../repositories/reminder.repository.js";
 import type { ReminderScheduler } from "../repositories/reminder.scheduler.js";
@@ -38,6 +46,7 @@ export class ProcessNoteService {
     private readonly analyzer: NoteAnalyzer,
     private readonly notes: NoteRepository,
     private readonly publisher: NoteEventPublisher,
+    private readonly failures: FailedMessageRepository,
     private readonly reminders: ReminderRepository,
     private readonly scheduler: ReminderScheduler,
     private readonly logger: Logger,
@@ -49,6 +58,36 @@ export class ProcessNoteService {
   }
 
   async execute(input: ProcessNoteInput): Promise<ProcessNoteOutput> {
+    try {
+      return await this.process(input);
+    } catch (error) {
+      // A permanent error is acknowledged and never retried, so unless the note is marked here
+      // it disappears with nothing but a log line and no alarm can see it.
+      if (!isRetryable(error)) {
+        await this.recordFailure(input.note, error);
+      }
+
+      throw error;
+    }
+  }
+
+  private async recordFailure(note: NoteReceivedDetail, error: unknown): Promise<void> {
+    const described = describeError(error);
+    const code = String(described.code ?? described.name ?? "unknown");
+
+    this.metrics.count("notes_dropped");
+    await this.failures.markFailed(note.pk, note.sk, code, String(described.message ?? ""));
+    await this.publisher.publishNoteFailed({
+      messageId: note.messageId,
+      pk: note.pk,
+      sk: note.sk,
+      owner: note.from,
+      code,
+      reason: String(described.message ?? ""),
+    });
+  }
+
+  private async process(input: ProcessNoteInput): Promise<ProcessNoteOutput> {
     this.logger.info("note_processing_started", {
       kind: input.note.kind,
       hasMedia: input.note.hasMedia,

@@ -4,6 +4,7 @@ export const WATCHER_EVENT_SOURCE = "watcher.ingest";
 export const NOTE_RECEIVED = "note.received";
 export const NOTE_PROCESSED = "note.processed";
 export const ALARM_DUE = "alarm.due";
+export const NOTE_FAILED = "note.failed";
 export const SCHEDULER_EVENT_SOURCE = "watcher.scheduler";
 export const PROCESSOR_EVENT_SOURCE = "watcher.processor";
 
@@ -50,6 +51,19 @@ export function envelopeSchemaOf<T extends z.ZodTypeAny>(detail: T) {
     detail,
   });
 }
+
+export const NoteFailedDetailSchema = z.object({
+  correlationId: z.string(),
+  conversationId: z.string().optional(),
+  messageId: z.string(),
+  pk: z.string(),
+  sk: z.string(),
+  owner: z.string(),
+  code: z.string(),
+  reason: z.string(),
+});
+
+export type NoteFailedDetail = z.infer<typeof NoteFailedDetailSchema>;
 
 export const ReminderDueDetailSchema = z.object({
   correlationId: z.string(),

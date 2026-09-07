@@ -7,6 +7,7 @@ import {
   FakeMediaReader,
   FakeMessageReader,
   FakeNotePublisher,
+  FakeFailedMessages,
   FakeNoteRepository,
   FakeReminderRepository,
   FakeReminderScheduler,
@@ -38,6 +39,7 @@ function build(
   const analyzer = new FakeAnalyzer(options.analysis);
   const notes = new FakeNoteRepository();
   const publisher = new FakeNotePublisher();
+  const failures = new FakeFailedMessages();
   const reminders = new FakeReminderRepository();
   const scheduler = new FakeReminderScheduler();
   const service = new ProcessNoteService(
@@ -46,6 +48,7 @@ function build(
     analyzer,
     notes,
     publisher,
+    failures,
     reminders,
     scheduler,
     logger,
@@ -57,7 +60,7 @@ function build(
     },
   );
 
-  return { service, media, analyzer, notes, publisher, reminders, scheduler, events };
+  return { service, media, analyzer, notes, publisher, failures, reminders, scheduler, events };
 }
 
 describe("ProcessNoteService", () => {
@@ -175,6 +178,32 @@ describe("ProcessNoteService", () => {
 
     expect(error).toBeInstanceOf(SourceMessageNotFoundError);
     expect(error.retryable).toBe(false);
+  });
+
+  it("marks the message FAILED and announces it when the error is permanent", async () => {
+    const { service, failures, publisher } = build({ source: { ...sourceMessage, kind: "video" } });
+
+    await service.execute({ note: detail, receiveCount: 1 }).catch(() => undefined);
+
+    expect(failures.marked).toEqual([
+      { pk: "USER#+51999000001", sk: "RAW#wamid.1", code: "unsupported_media" },
+    ]);
+    expect(publisher.failures[0]).toMatchObject({
+      messageId: "wamid.1",
+      code: "unsupported_media",
+      owner: "+51999000001",
+    });
+  });
+
+  it("leaves a retryable failure alone, since the queue will bring it back", async () => {
+    const { service, failures, publisher } = build({
+      analysis: new ModelUnavailableError(new Error("throttled")),
+    });
+
+    await service.execute({ note: detail, receiveCount: 1 }).catch(() => undefined);
+
+    expect(failures.marked).toHaveLength(0);
+    expect(publisher.failures).toHaveLength(0);
   });
 
   it("propagates a model outage as retryable", async () => {

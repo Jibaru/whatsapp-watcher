@@ -187,7 +187,21 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 | KAPSO caído al enviar la alarma | Reintentos en `alarm-dispatch`, luego su DLQ; la alarma **no** se marca `SENT`. |
 | Lote SQS con un mensaje malo | `ReportBatchItemFailures`: solo ese mensaje se reintenta, el resto se confirma. |
 | Reproceso horas o días después | El media sigue en S3 aunque la URL de KAPSO haya caducado: el reproceso es siempre posible. |
-| Reproceso | El operador hace *redrive* de la DLQ a la cola principal; la idempotencia evita notas duplicadas. |
+| Reproceso | El operador hace *redrive* de la DLQ a la cola principal; la idempotencia evita notas duplicadas (§6.5). |
+
+### 6.5 Redrive: cómo se recupera lo que cayó en la DLQ
+
+`aws sqs start-message-move-task --source-arn <arn-de-la-dlq>` devuelve los mensajes a su cola de
+origen. Dos cosas aprendidas ejecutándolo de verdad:
+
+- El redrive nativo **solo sabe devolver mensajes que SQS movió**: lee de sus metadatos cuál era la
+  cola de origen. Un mensaje inyectado a mano falla con `CouldNotDetermineMessageSource` y hay que
+  pasarle `--destination-arn` explícito.
+- La tarea toma una foto de la cola al arrancar: un mensaje recién llegado puede quedarse fuera.
+
+Verificado en `dev`: tras el redrive la nota **se reprocesa y el `noteId` cambia**, pero sigue
+habiendo **una sola** nota, porque su clave es `NOTE#<messageId>` y se sobrescribe en vez de
+duplicarse.
 
 ## 7. Modelo de datos (DynamoDB single-table `WatcherMain-<stage>`)
 
@@ -259,13 +273,20 @@ sin su causa no dice nada.
 | `AlarmsNotDelivered` | `alarms_failed / alarms_attempted > 10 %` en 1 h. |
 | `LowModelConfidence` | Media de `confidence` < 0.5 en 1 h → prompt o modelo degradado. |
 
-### 8.2.1 Punto ciego conocido
+### 8.2.1 El punto ciego, cerrado
 
-Los errores **permanentes** se confirman a propósito (§7.1), así que **nunca llegan a una DLQ** y
-ninguna alarma basada en profundidad de cola los ve. Un audio que el modelo rechaza o un envío fuera
-de la ventana de 24 h desaparecen hoy con una sola línea de log. `AlarmsNotDelivered` cubre el tramo
-del `notifier`; el del `processor` no está cubierto y haría falta una métrica `notes_dropped` por
-`code`. Queda anotado, no resuelto.
+Los errores **permanentes** se confirman a propósito (§7.1), así que **nunca llegan a una DLQ**: no
+hay alarma de profundidad de cola que pueda verlos. Por eso el `processor`, antes de propagar un
+error permanente, marca el ítem crudo como `status = FAILED` con su `failureCode`, emite
+`note.failed` y cuenta `notes_dropped`, sobre la que dispara la alarma `NotesDropped`.
+
+| Alarma | Métrica | Umbral |
+|---|---|---|
+| `NotesDropped` | `notes_dropped` | `≥ 1` en 15 min |
+
+Así una nota descartada deja tres rastros —el ítem en `FAILED`, el evento y la alarma— en vez de una
+línea de log que nadie mira. **Nadie consume `note.failed` todavía**: el siguiente uso natural es
+avisar al usuario de que su nota no se pudo procesar.
 
 ### 8.3 Logs y métricas
 
