@@ -1,0 +1,26 @@
+{
+  "name": "whatsapp-watcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sst dev --stage dev",
+    "deploy": "sst deploy --stage dev",
+    "destroy": "sst remove --stage dev",
+    "secret:set": "sst secret set KapsoWebhookSecret --stage dev",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "^1.6.3",
+    "hono": "^4.13.7",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.163",
+    "@types/bun": "^1.2.0",
+    "@types/node": "^24.13.3",
+    "sst": "^4.17.1",
+    "typescript": "^5.9.3"
+  }
+}
