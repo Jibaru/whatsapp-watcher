@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Logger, NoteReceivedDetail } from "@watcher/core";
-import { UnsupportedMediaError } from "../domain/errors.js";
+import { NoAnalyzableContentError, UnsupportedMediaError } from "../domain/errors.js";
 import { Note } from "../domain/note.js";
 import type { InboundMessageReader, SourceMessage } from "../repositories/inbound-message.reader.js";
 import type { MediaReader } from "../repositories/media.reader.js";
@@ -20,6 +20,7 @@ export interface ProcessNoteOutput {
 
 export interface ProcessNoteOptions {
   readonly defaultTimezone: string;
+  readonly modelSupportsImages: boolean;
   readonly now?: () => Date;
   readonly newId?: () => string;
 }
@@ -56,9 +57,15 @@ export class ProcessNoteService {
       throw new UnsupportedMediaError(source.kind);
     }
 
+    const image = await this.loadImage(source);
+
+    if (image === undefined && (source.text === undefined || source.text.trim() === "")) {
+      throw new NoAnalyzableContentError();
+    }
+
     const analyzed = await this.analyzer.analyze({
       text: source.text,
-      image: await this.loadImage(source),
+      image,
       now: this.now(),
       timezone: this.options.defaultTimezone,
     });
@@ -97,6 +104,13 @@ export class ProcessNoteService {
 
   private async loadImage(source: SourceMessage) {
     if (source.mediaKey === undefined || source.kind !== "image") {
+      return undefined;
+    }
+
+    // A text-only model still gets the caption: a degraded note beats a lost one.
+    if (!this.options.modelSupportsImages) {
+      this.logger.warn("image_skipped_no_vision", { mediaKey: source.mediaKey });
+
       return undefined;
     }
 

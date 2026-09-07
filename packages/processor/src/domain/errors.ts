@@ -13,6 +13,12 @@ export class UnsupportedMediaError extends PermanentError {
   }
 }
 
+export class NoAnalyzableContentError extends PermanentError {
+  constructor() {
+    super("no_analyzable_content", "The message has neither text nor an image the model can read");
+  }
+}
+
 export class ModelUnavailableError extends TransientError {
   constructor(cause: unknown) {
     super("model_unavailable", "Bedrock rejected the call and it is worth retrying", { cause });

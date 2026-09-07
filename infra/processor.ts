@@ -13,6 +13,10 @@ export const processor = new sst.aws.Function("ProcessorFunction", {
     TABLE_NAME: table.name,
     MEDIA_BUCKET: mediaBucket.name,
     EVENT_BUS_NAME: bus.name,
+    // Open weights, so it needs no provider use case form. Text only until the account
+    // gets access to a vision model (docs/ENUNCIADO.md, 13).
+    BEDROCK_MODEL_ID: "openai.gpt-oss-120b-1:0",
+    BEDROCK_MODEL_VISION: "false",
   },
   // The function is declared here, not inline in subscribe(), so SST does not wire the
   // consumer permissions for us.

@@ -32,7 +32,9 @@ const detail: NoteReceivedDetail = {
   receivedAt: now.toISOString(),
 };
 
-function build(options: { source?: SourceMessage | Error; analysis?: AnalyzedNote | Error } = {}) {
+function build(
+  options: { source?: SourceMessage | Error; analysis?: AnalyzedNote | Error; vision?: boolean } = {},
+) {
   const { logger, events } = memoryLogger();
   const media = new FakeMediaReader();
   const analyzer = new FakeAnalyzer(options.analysis);
@@ -45,7 +47,12 @@ function build(options: { source?: SourceMessage | Error; analysis?: AnalyzedNot
     notes,
     publisher,
     logger,
-    { defaultTimezone: "America/Lima", now: () => now, newId: () => "note-1" },
+    {
+      defaultTimezone: "America/Lima",
+      modelSupportsImages: options.vision ?? true,
+      now: () => now,
+      newId: () => "note-1",
+    },
   );
 
   return { service, media, analyzer, notes, publisher, events };
@@ -87,6 +94,32 @@ describe("ProcessNoteService", () => {
 
     expect(media.reads).toEqual(["inbound/wamid.1.jpg"]);
     expect(analyzer.calls[0]?.image?.mimeType).toBe("image/jpeg");
+  });
+
+  it("falls back to the caption when the model cannot see images", async () => {
+    const { service, media, analyzer, notes } = build({
+      vision: false,
+      source: { ...sourceMessage, kind: "image", mediaKey: "inbound/wamid.1.jpg", text: "buenas" },
+    });
+
+    await service.execute({ note: { ...detail, kind: "image", hasMedia: true }, receiveCount: 1 });
+
+    expect(media.reads).toHaveLength(0);
+    expect(analyzer.calls[0]?.image).toBeUndefined();
+    expect(analyzer.calls[0]?.text).toBe("buenas");
+    expect(notes.saved).toHaveLength(1);
+  });
+
+  it("refuses an image with no caption when the model cannot see", async () => {
+    const { service } = build({
+      vision: false,
+      source: { ...sourceMessage, kind: "image", mediaKey: "inbound/wamid.1.jpg", text: undefined },
+    });
+
+    const error = await service.execute({ note: detail, receiveCount: 1 }).catch((e) => e);
+
+    expect(error.code).toBe("no_analyzable_content");
+    expect(error.retryable).toBe(false);
   });
 
   it("refuses audio permanently: no Claude model on Bedrock accepts it yet", async () => {

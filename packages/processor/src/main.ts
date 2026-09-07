@@ -27,7 +27,7 @@ const service = new ProcessNoteService(
   new DynamoNoteRepository(documentClient, config.tableName, logger),
   new EventBridgeNoteEventPublisher(new EventBridgeClient({}), config.eventBusName, logger),
   logger,
-  { defaultTimezone: config.defaultTimezone },
+  { defaultTimezone: config.defaultTimezone, modelSupportsImages: config.modelSupportsImages },
 );
 
 export const handler = makeNoteReceivedHandler(service, logger);

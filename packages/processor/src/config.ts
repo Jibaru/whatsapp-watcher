@@ -7,6 +7,7 @@ export interface ProcessorConfig {
   readonly mediaBucket: string;
   readonly eventBusName: string;
   readonly modelId: string;
+  readonly modelSupportsImages: boolean;
   readonly defaultTimezone: string;
 }
 
@@ -23,6 +24,7 @@ export function loadProcessorConfig(env: NodeJS.ProcessEnv = process.env): Proce
     mediaBucket: requireEnv(env, "MEDIA_BUCKET"),
     eventBusName: requireEnv(env, "EVENT_BUS_NAME"),
     modelId: env.BEDROCK_MODEL_ID?.trim() || DEFAULT_MODEL_ID,
+    modelSupportsImages: env.BEDROCK_MODEL_VISION?.trim() !== "false",
     defaultTimezone: env.DEFAULT_TIMEZONE?.trim() || DEFAULT_TIMEZONE,
   };
 }
