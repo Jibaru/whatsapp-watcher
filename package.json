@@ -3,14 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "sst dev --stage dev",
     "deploy": "sst deploy --stage dev",
     "destroy": "sst remove --stage dev",
     "secret:set": "sst secret set KapsoWebhookSecret --stage dev",
     "typecheck": "tsc --noEmit",
-    "test": "bun test packages"
+    "test": "bun test packages",
+    "webhook:test": "bun packages/ingest/scripts/send-test-webhook.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

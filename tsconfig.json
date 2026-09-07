@@ -21,6 +21,7 @@
   "include": [
     "packages/*/src",
     "packages/*/tests",
+    "packages/*/scripts",
     "infra",
     "sst.config.ts"
   ]
