@@ -1,7 +1,7 @@
 import {
   describeError,
   isRetryable,
-  NoteProcessedEnvelopeSchema,
+  DispatchEnvelopeSchema,
   PermanentError,
   runWithLogContext,
   type Logger,
@@ -32,7 +32,7 @@ async function handleRecord(
   service: NotifyNoteService,
   logger: Logger,
 ): Promise<void> {
-  const parsed = NoteProcessedEnvelopeSchema.safeParse(JSON.parse(record.body));
+  const parsed = DispatchEnvelopeSchema.safeParse(JSON.parse(record.body));
 
   if (!parsed.success) {
     logger.error("note_event_unreadable", { sqsMessageId: record.messageId });
@@ -40,7 +40,8 @@ async function handleRecord(
     throw new PermanentError("note_event_unreadable", "The queued event does not match the contract");
   }
 
-  const note = parsed.data.detail;
+  const envelope = parsed.data;
+  const note = envelope.detail;
 
   await runWithLogContext(
     {
@@ -50,7 +51,7 @@ async function handleRecord(
     },
     async () => {
       try {
-        await service.execute({ note });
+        await service.execute({ envelope });
       } catch (error) {
         logger.error("notification_failed", {
           ...describeError(error),

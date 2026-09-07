@@ -1,5 +1,6 @@
 import { JsonLogger, type LogFields, type Logger } from "@watcher/core";
 import type { Note } from "../../src/domain/note.js";
+import type { ReminderDueDetail } from "@watcher/core";
 import type {
   InboundMessageReader,
   SourceMessage,
@@ -15,6 +16,8 @@ import type {
   PublishNoteProcessedCommand,
 } from "../../src/repositories/note-event.publisher.js";
 import type { NoteRepository } from "../../src/repositories/note.repository.js";
+import type { Reminder, ReminderRepository } from "../../src/repositories/reminder.repository.js";
+import type { ReminderScheduler } from "../../src/repositories/reminder.scheduler.js";
 
 export function memoryLogger() {
   const lines: LogFields[] = [];
@@ -93,5 +96,28 @@ export class FakeNotePublisher implements NoteEventPublisher {
 
   async publishNoteProcessed(command: PublishNoteProcessedCommand): Promise<void> {
     this.published.push(command);
+  }
+}
+
+export class FakeReminderRepository implements ReminderRepository {
+  readonly saved: Note[] = [];
+
+  async save(note: Note): Promise<Reminder> {
+    this.saved.push(note);
+
+    return {
+      pk: `USER#${note.owner}`,
+      sk: `ALARM#1788800000#${note.messageId}`,
+      alarmId: note.messageId,
+      dueAt: note.dueAt!,
+    };
+  }
+}
+
+export class FakeReminderScheduler implements ReminderScheduler {
+  readonly scheduled: { detail: ReminderDueDetail; dueAt: Date }[] = [];
+
+  async schedule(detail: ReminderDueDetail, dueAt: Date): Promise<void> {
+    this.scheduled.push({ detail, dueAt });
   }
 }

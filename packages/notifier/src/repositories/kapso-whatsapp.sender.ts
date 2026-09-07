@@ -11,6 +11,9 @@ export interface KapsoSenderOptions {
   readonly apiUrl: string;
   readonly apiKey: string;
   readonly phoneNumberId: string;
+  /** Approved template with a single body variable. Empty until one exists in KAPSO. */
+  readonly reminderTemplate: string;
+  readonly templateLanguage: string;
 }
 
 type Fetch = typeof globalThis.fetch;
@@ -23,6 +26,28 @@ export class KapsoWhatsAppSender implements WhatsAppSender {
   ) {}
 
   async send(message: OutboundMessage): Promise<void> {
+    try {
+      await this.post(textPayload(message));
+    } catch (error) {
+      if (!(error instanceof OutsideCustomerServiceWindowError) || !this.canUseTemplate(message)) {
+        throw error;
+      }
+
+      // A reminder that fires the next day is outside the window by definition; only an
+      // approved template can reopen the conversation.
+      this.logger.info("falling_back_to_template", { template: this.options.reminderTemplate });
+
+      await this.post(
+        templatePayload(message, this.options.reminderTemplate, this.options.templateLanguage),
+      );
+    }
+  }
+
+  private canUseTemplate(message: OutboundMessage): boolean {
+    return message.kind === "reminder" && this.options.reminderTemplate !== "";
+  }
+
+  private async post(payload: Record<string, unknown>): Promise<void> {
     const url = `${this.options.apiUrl}/meta/whatsapp/v24.0/${this.options.phoneNumberId}/messages`;
     let response: Response;
 
@@ -30,28 +55,22 @@ export class KapsoWhatsAppSender implements WhatsAppSender {
       response = await this.fetchImpl(url, {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": this.options.apiKey },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          // WhatsApp wants the number without the leading plus.
-          to: message.to.replace(/^\+/, ""),
-          type: "text",
-          text: { body: message.body },
-        }),
+        body: JSON.stringify(payload),
       });
     } catch (error) {
       throw new WhatsAppUnavailableError(error instanceof Error ? error.message : String(error));
     }
 
-    const payload = await readBody(response);
+    const body = await readBody(response);
 
     if (!response.ok) {
-      throw this.toDomainError(response.status, payload, message.to);
+      throw this.toDomainError(response.status, body, String(payload.to));
     }
 
     this.logger.info("whatsapp_message_sent", {
-      to: message.to,
-      messageId: firstMessageId(payload),
+      to: payload.to,
+      type: payload.type,
+      messageId: firstMessageId(body),
     });
   }
 
@@ -67,6 +86,39 @@ export class KapsoWhatsAppSender implements WhatsAppSender {
 
     return new WhatsAppRejectedError(status, JSON.stringify(payload).slice(0, 300));
   }
+}
+
+/** WhatsApp does not take the leading plus in the recipient. */
+function recipientOf(message: OutboundMessage): string {
+  return message.to.replace(/^\+/, "");
+}
+
+function textPayload(message: OutboundMessage): Record<string, unknown> {
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: recipientOf(message),
+    type: "text",
+    text: { body: message.body },
+  };
+}
+
+function templatePayload(
+  message: OutboundMessage,
+  name: string,
+  language: string,
+): Record<string, unknown> {
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: recipientOf(message),
+    type: "template",
+    template: {
+      name,
+      language: { code: language },
+      components: [{ type: "body", parameters: [{ type: "text", text: message.body }] }],
+    },
+  };
 }
 
 async function readBody(response: Response): Promise<unknown> {

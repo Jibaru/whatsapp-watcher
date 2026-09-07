@@ -8,7 +8,10 @@ interface Call {
   readonly body: Record<string, unknown>;
 }
 
-function build(response: { status: number; payload?: unknown } | Error) {
+function build(
+  response: { status: number; payload?: unknown } | Error,
+  options: { template?: string } = {},
+) {
   const lines: LogFields[] = [];
   const calls: Call[] = [];
   const logger = new JsonLogger({ service: "notifier" }, (line) => {
@@ -20,17 +23,25 @@ function build(response: { status: number; payload?: unknown } | Error) {
       throw response;
     }
 
-    calls.push({
-      url: String(url),
-      headers: init.headers as Record<string, string>,
-      body: JSON.parse(String(init.body)) as Record<string, unknown>,
-    });
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    calls.push({ url: String(url), headers: init.headers as Record<string, string>, body });
+
+    // A template send always succeeds here: the window error is what triggered it.
+    if (body.type === "template") {
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.tpl" }] }), { status: 200 });
+    }
 
     return new Response(JSON.stringify(response.payload ?? {}), { status: response.status });
   }) as unknown as typeof globalThis.fetch;
 
   const sender = new KapsoWhatsAppSender(
-    { apiUrl: "https://api.kapso.example", apiKey: "test-key", phoneNumberId: "597907523413541" },
+    {
+      apiUrl: "https://api.kapso.example",
+      apiKey: "test-key",
+      phoneNumberId: "597907523413541",
+      reminderTemplate: options.template ?? "",
+      templateLanguage: "es",
+    },
     logger,
     fetchImpl,
   );
@@ -38,7 +49,11 @@ function build(response: { status: number; payload?: unknown } | Error) {
   return { sender, calls, lines };
 }
 
-const message = { to: "+51999000001", body: "Anotado ✅ Llamar al proveedor." };
+const message = {
+  to: "+51999000001",
+  body: "Anotado ✅ Llamar al proveedor.",
+  kind: "confirmation" as const,
+};
 
 describe("KapsoWhatsAppSender", () => {
   it("posts the message to the phone number's endpoint", async () => {
@@ -83,6 +98,34 @@ describe("KapsoWhatsAppSender", () => {
 
     expect(error.code).toBe("outside_customer_service_window");
     expect(error.retryable).toBe(false);
+  });
+
+  it("falls back to the template when a reminder finds the window closed", async () => {
+    const { sender, calls } = build(
+      { status: 400, payload: { error: { code: 131047 } } },
+      { template: "watcher_reminder" },
+    );
+
+    await sender.send({ ...message, kind: "reminder" });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.body.type).toBe("template");
+    expect(calls[1]?.body.template).toMatchObject({
+      name: "watcher_reminder",
+      language: { code: "es" },
+    });
+  });
+
+  it("does not fall back for a confirmation, which is never outside the window", async () => {
+    const { sender, calls } = build(
+      { status: 400, payload: { error: { code: 131047 } } },
+      { template: "watcher_reminder" },
+    );
+
+    const error = await sender.send(message).catch((e) => e);
+
+    expect(error.code).toBe("outside_customer_service_window");
+    expect(calls).toHaveLength(1);
   });
 
   it("does not retry a rejected key or a malformed send", async () => {

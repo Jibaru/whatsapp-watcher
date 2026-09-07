@@ -1,0 +1,52 @@
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { GetCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import type { Logger } from "@watcher/core";
+
+export interface ReminderRepository {
+  isPending(pk: string, sk: string): Promise<boolean>;
+  markSent(pk: string, sk: string): Promise<void>;
+}
+
+export class DynamoReminderRepository implements ReminderRepository {
+  constructor(
+    private readonly client: DynamoDBDocumentClient,
+    private readonly tableName: string,
+    private readonly logger: Logger,
+  ) {}
+
+  async isPending(pk: string, sk: string): Promise<boolean> {
+    const { Item } = await this.client.send(
+      new GetCommand({ TableName: this.tableName, Key: { pk, sk }, ConsistentRead: true }),
+    );
+
+    return Item?.status === "PENDING";
+  }
+
+  async markSent(pk: string, sk: string): Promise<void> {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { pk, sk },
+          UpdateExpression: "SET #status = :sent, sentAtEpoch = :now",
+          ConditionExpression: "#status = :pending",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: {
+            ":sent": "SENT",
+            ":pending": "PENDING",
+            ":now": Math.floor(Date.now() / 1000),
+          },
+        }),
+      );
+    } catch (error) {
+      // Someone else already marked it. The message went out either way, so this is not a failure.
+      if (error instanceof ConditionalCheckFailedException) {
+        this.logger.warn("reminder_already_marked", { pk, sk });
+
+        return;
+      }
+
+      throw error;
+    }
+  }
+}

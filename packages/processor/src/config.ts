@@ -6,6 +6,8 @@ export interface ProcessorConfig {
   readonly tableName: string;
   readonly mediaBucket: string;
   readonly eventBusName: string;
+  readonly dispatchQueueArn: string;
+  readonly schedulerRoleArn: string;
   readonly openAiApiKey: string;
   readonly modelId: string;
   readonly transcriptionModelId: string;
@@ -25,6 +27,8 @@ export function loadProcessorConfig(env: NodeJS.ProcessEnv = process.env): Proce
     tableName: requireEnv(env, "TABLE_NAME"),
     mediaBucket: requireEnv(env, "MEDIA_BUCKET"),
     eventBusName: requireEnv(env, "EVENT_BUS_NAME"),
+    dispatchQueueArn: requireEnv(env, "DISPATCH_QUEUE_ARN"),
+    schedulerRoleArn: requireEnv(env, "SCHEDULER_ROLE_ARN"),
     openAiApiKey: requireEnv(env, "OPENAI_API_KEY"),
     modelId: env.OPENAI_MODEL_ID?.trim() || DEFAULT_MODEL_ID,
     transcriptionModelId: env.OPENAI_TRANSCRIPTION_MODEL_ID?.trim() || DEFAULT_TRANSCRIPTION_MODEL_ID,

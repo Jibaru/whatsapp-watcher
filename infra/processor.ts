@@ -1,4 +1,4 @@
-import { bus, noteProcessingQueue } from "./events";
+import { alarmDispatchQueue, bus, noteProcessingQueue, schedulerRole } from "./events";
 
 export const openAiApiKey = new sst.Secret("OpenAiApiKey");
 import { mediaBucket, table } from "./storage";
@@ -15,6 +15,8 @@ export const processor = new sst.aws.Function("ProcessorFunction", {
     TABLE_NAME: table.name,
     MEDIA_BUCKET: mediaBucket.name,
     EVENT_BUS_NAME: bus.name,
+    DISPATCH_QUEUE_ARN: alarmDispatchQueue.arn,
+    SCHEDULER_ROLE_ARN: schedulerRole.arn,
     OPENAI_API_KEY: openAiApiKey.value,
   },
   // The function is declared here, not inline in subscribe(), so SST does not wire the
@@ -24,6 +26,12 @@ export const processor = new sst.aws.Function("ProcessorFunction", {
       actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
       resources: [noteProcessingQueue.arn],
     },
+    {
+      actions: ["scheduler:CreateSchedule", "scheduler:GetSchedule", "scheduler:DeleteSchedule"],
+      resources: ["*"],
+    },
+    // Creating a schedule means handing the scheduler a role, and that needs saying so.
+    { actions: ["iam:PassRole"], resources: [schedulerRole.arn] },
   ],
 });
 

@@ -9,15 +9,20 @@ export {
 } from "./errors.js";
 export {
   EventBridgeEnvelopeSchema,
+  ALARM_DUE,
+  DispatchEnvelopeSchema,
   NOTE_PROCESSED,
   NOTE_RECEIVED,
   NoteProcessedDetailSchema,
-  NoteProcessedEnvelopeSchema,
   NoteReceivedDetailSchema,
   PROCESSOR_EVENT_SOURCE,
+  ReminderDueDetailSchema,
+  SCHEDULER_EVENT_SOURCE,
   WATCHER_EVENT_SOURCE,
+  type DispatchEnvelope,
   type NoteProcessedDetail,
   type NoteReceivedDetail,
+  type ReminderDueDetail,
 } from "./events.js";
 export {
   getLogContext,

@@ -27,7 +27,8 @@ Full design in [`docs/ENUNCIADO.md`](docs/ENUNCIADO.md) (Spanish). Interactive d
    committed state is what makes it impossible to store a note and never announce it.
 3. **processor** reads the item, pulls the media from S3, transcribes audio and extracts the note
    through OpenAI, writes it and publishes `note.processed`.
-4. **notifier** answers on the same WhatsApp thread. Outside production it only writes to numbers on
+4. **notifier** answers on the same WhatsApp thread, both the confirmation and, later, the reminder
+   that EventBridge Scheduler drops on the same queue. Outside production it only writes to numbers on
    an allowlist; an empty allowlist sends to nobody.
 
 Every step is at-least-once, so every consumer is idempotent and errors are classified as retryable
@@ -97,10 +98,12 @@ bun run webhook:test <url> <secret>
 
 ## Known gaps
 
-- Only free-form messages are sent, which WhatsApp allows for 24 hours after the user writes. The
-  confirmation always fits; a reminder that fires the next day does not, and needs an approved
-  template. The sender already recognises Meta's code 131047 and treats it as permanent instead of
-  retrying, so the case is visible in the logs the day it happens.
+- A reminder that fires more than 24 hours after the user last wrote needs an approved template.
+  The code path is there and tested: on Meta's code 131047 the sender retries the same reminder as
+  a template with a single body variable. It stays inactive until `KapsoReminderTemplate` names an
+  approved template, so today a next-day reminder still fails.
+- Rule based alarms (silence for N days, a daily digest of overdue notes) need the evaluator and the
+  AlarmDueIndex GSI. The reminder items already carry the index attributes.
 - Replies always go to the full international number. A national one lets WhatsApp fill in the
   country of the sending account, which once delivered a note to a stranger in another country, so
   the sandbox test number must be registered with its country code.

@@ -22,3 +22,18 @@ export const alarmDispatchQueue = new sst.aws.Queue("AlarmDispatchQueue", {
 bus.subscribeQueue("NoteProcessed", alarmDispatchQueue, {
   pattern: { source: ["watcher.processor"], detailType: ["note.processed"] },
 });
+
+/** EventBridge Scheduler needs its own identity to drop the reminder on the queue. */
+export const schedulerRole = new aws.iam.Role("ReminderSchedulerRole", {
+  assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({ Service: "scheduler.amazonaws.com" }),
+});
+
+new aws.iam.RolePolicy("ReminderSchedulerPolicy", {
+  role: schedulerRole.id,
+  policy: alarmDispatchQueue.arn.apply((arn) =>
+    JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [{ Effect: "Allow", Action: ["sqs:SendMessage"], Resource: arn }],
+    }),
+  ),
+});

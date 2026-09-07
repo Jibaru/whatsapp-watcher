@@ -8,6 +8,8 @@ import {
   FakeMessageReader,
   FakeNotePublisher,
   FakeNoteRepository,
+  FakeReminderRepository,
+  FakeReminderScheduler,
   memoryLogger,
   sourceMessage,
 } from "./support/fakes.js";
@@ -36,12 +38,16 @@ function build(
   const analyzer = new FakeAnalyzer(options.analysis);
   const notes = new FakeNoteRepository();
   const publisher = new FakeNotePublisher();
+  const reminders = new FakeReminderRepository();
+  const scheduler = new FakeReminderScheduler();
   const service = new ProcessNoteService(
     new FakeMessageReader(options.source),
     media,
     analyzer,
     notes,
     publisher,
+    reminders,
+    scheduler,
     logger,
     new NoopMetrics(),
     {
@@ -51,7 +57,7 @@ function build(
     },
   );
 
-  return { service, media, analyzer, notes, publisher, events };
+  return { service, media, analyzer, notes, publisher, reminders, scheduler, events };
 }
 
 describe("ProcessNoteService", () => {
@@ -90,6 +96,32 @@ describe("ProcessNoteService", () => {
     await service.execute({ note: detail, receiveCount: 1 });
 
     expect(publisher.published[0]?.to).toBe("999000001");
+  });
+
+  it("writes the reminder and schedules it when the note has a due date", async () => {
+    const { service, reminders, scheduler } = build();
+
+    await service.execute({ note: detail, receiveCount: 1 });
+
+    expect(reminders.saved).toHaveLength(1);
+    expect(scheduler.scheduled[0]?.dueAt.toISOString()).toBe("2026-09-08T15:00:00.000Z");
+    expect(scheduler.scheduled[0]?.detail).toMatchObject({
+      alarmId: "wamid.1",
+      sk: "ALARM#1788800000#wamid.1",
+      to: "+51999000001",
+      title: "Llamar al proveedor",
+    });
+  });
+
+  it("schedules nothing for a note without a due date", async () => {
+    const { service, reminders, scheduler } = build({
+      analysis: { title: "Nota", summary: "", tags: [], priority: "normal", confidence: 0.9 },
+    });
+
+    await service.execute({ note: detail, receiveCount: 1 });
+
+    expect(reminders.saved).toHaveLength(0);
+    expect(scheduler.scheduled).toHaveLength(0);
   });
 
   it("gives the model the current instant and the timezone to resolve relative dates", async () => {

@@ -3,6 +3,8 @@ import { z } from "zod";
 export const WATCHER_EVENT_SOURCE = "watcher.ingest";
 export const NOTE_RECEIVED = "note.received";
 export const NOTE_PROCESSED = "note.processed";
+export const ALARM_DUE = "alarm.due";
+export const SCHEDULER_EVENT_SOURCE = "watcher.scheduler";
 export const PROCESSOR_EVENT_SOURCE = "watcher.processor";
 
 /** The contract between the lambdas: the producer builds it, the consumer parses it. */
@@ -49,5 +51,39 @@ export function envelopeSchemaOf<T extends z.ZodTypeAny>(detail: T) {
   });
 }
 
+export const ReminderDueDetailSchema = z.object({
+  correlationId: z.string(),
+  conversationId: z.string().optional(),
+  messageId: z.string(),
+  noteId: z.string(),
+  alarmId: z.string(),
+  pk: z.string(),
+  sk: z.string(),
+  to: z.string(),
+  owner: z.string(),
+  title: z.string(),
+  dueAt: z.string(),
+});
+
+export type ReminderDueDetail = z.infer<typeof ReminderDueDetailSchema>;
+
 export const EventBridgeEnvelopeSchema = envelopeSchemaOf(NoteReceivedDetailSchema);
-export const NoteProcessedEnvelopeSchema = envelopeSchemaOf(NoteProcessedDetailSchema);
+
+/**
+ * The dispatch queue carries two producers: the bus with a confirmation and the scheduler with a
+ * reminder. The scheduler's input mimics the bus envelope so the consumer parses one shape.
+ */
+export const DispatchEnvelopeSchema = z.discriminatedUnion("detail-type", [
+  z.object({
+    source: z.string(),
+    "detail-type": z.literal(NOTE_PROCESSED),
+    detail: NoteProcessedDetailSchema,
+  }),
+  z.object({
+    source: z.string(),
+    "detail-type": z.literal(ALARM_DUE),
+    detail: ReminderDueDetailSchema,
+  }),
+]);
+
+export type DispatchEnvelope = z.infer<typeof DispatchEnvelopeSchema>;

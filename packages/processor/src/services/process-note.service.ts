@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Logger, Metrics, NoteReceivedDetail } from "@watcher/core";
+import { getLogContext, type Logger, type Metrics, type NoteReceivedDetail } from "@watcher/core";
 import { NoAnalyzableContentError, UnsupportedMediaError } from "../domain/errors.js";
 import { Note } from "../domain/note.js";
 import type { InboundMessageReader, SourceMessage } from "../repositories/inbound-message.reader.js";
@@ -7,6 +7,8 @@ import type { MediaReader } from "../repositories/media.reader.js";
 import type { NoteAnalyzer } from "../repositories/note-analyzer.js";
 import type { NoteEventPublisher } from "../repositories/note-event.publisher.js";
 import type { NoteRepository } from "../repositories/note.repository.js";
+import type { ReminderRepository } from "../repositories/reminder.repository.js";
+import type { ReminderScheduler } from "../repositories/reminder.scheduler.js";
 
 export interface ProcessNoteInput {
   readonly note: NoteReceivedDetail;
@@ -36,6 +38,8 @@ export class ProcessNoteService {
     private readonly analyzer: NoteAnalyzer,
     private readonly notes: NoteRepository,
     private readonly publisher: NoteEventPublisher,
+    private readonly reminders: ReminderRepository,
+    private readonly scheduler: ReminderScheduler,
     private readonly logger: Logger,
     private readonly metrics: Metrics,
     private readonly options: ProcessNoteOptions,
@@ -86,6 +90,11 @@ export class ProcessNoteService {
     });
 
     await this.notes.save(note);
+
+    if (note.hasReminder()) {
+      await this.scheduleReminder(note, source.fromAddress, input.note);
+    }
+
     await this.publisher.publishNoteProcessed({
       messageId: note.messageId,
       noteId: note.noteId,
@@ -110,6 +119,36 @@ export class ProcessNoteService {
     });
 
     return { noteId: note.noteId, hasReminder: note.hasReminder() };
+  }
+
+  /**
+   * Written before it is scheduled: a schedule that fires with no reminder to read would
+   * ring for something that does not exist.
+   */
+  private async scheduleReminder(
+    note: Note,
+    address: string,
+    received: NoteReceivedDetail,
+  ): Promise<void> {
+    const reminder = await this.reminders.save(note);
+    const context = getLogContext();
+
+    await this.scheduler.schedule(
+      {
+        correlationId: context?.correlationId ?? note.messageId,
+        conversationId: context?.conversationId,
+        messageId: note.messageId,
+        noteId: note.noteId,
+        alarmId: reminder.alarmId,
+        pk: reminder.pk,
+        sk: reminder.sk,
+        to: received.from.startsWith("+") ? received.from : address,
+        owner: note.owner,
+        title: note.title,
+        dueAt: reminder.dueAt.toISOString(),
+      },
+      reminder.dueAt,
+    );
   }
 
   private async loadMedia(source: SourceMessage) {
