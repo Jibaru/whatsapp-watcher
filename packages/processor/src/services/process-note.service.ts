@@ -130,24 +130,11 @@ export class ProcessNoteService {
 
     await this.notes.save(note);
 
+    // Nothing else goes out. A note without an hour is silence on purpose: the user reads it
+    // back in the daily digest, not as an echo of what they just typed.
     if (note.hasReminder()) {
-      await this.scheduleReminder(note, source.fromAddress, input.note);
+      await this.scheduleReminder(note, source);
     }
-
-    await this.publisher.publishNoteProcessed({
-      messageId: note.messageId,
-      noteId: note.noteId,
-      pk: input.note.pk,
-      sk: input.note.sk,
-      // Always the full international number. A national one lets the provider guess the
-      // country, and a wrong guess delivers the note to a stranger.
-      to: source.from.startsWith("+") ? source.from : source.fromAddress,
-      owner: note.owner,
-      title: note.title,
-      summary: note.summary,
-      priority: note.priority,
-      dueAt: note.dueAt?.toISOString(),
-    });
 
     this.metrics.count("notes_processed");
     this.metrics.value("model_confidence", note.confidence, "None");
@@ -164,11 +151,7 @@ export class ProcessNoteService {
    * Written before it is scheduled: a schedule that fires with no reminder to read would
    * ring for something that does not exist.
    */
-  private async scheduleReminder(
-    note: Note,
-    address: string,
-    received: NoteReceivedDetail,
-  ): Promise<void> {
+  private async scheduleReminder(note: Note, source: SourceMessage): Promise<void> {
     const reminder = await this.reminders.save(note);
     const context = getLogContext();
 
@@ -181,7 +164,9 @@ export class ProcessNoteService {
         alarmId: reminder.alarmId,
         pk: reminder.pk,
         sk: reminder.sk,
-        to: received.from.startsWith("+") ? received.from : address,
+        // Always the full international number. A national one lets the provider guess the
+        // country, and a wrong guess delivers the reminder to a stranger.
+        to: source.from.startsWith("+") ? source.from : source.fromAddress,
         owner: note.owner,
         title: note.title,
         dueAt: reminder.dueAt.toISOString(),

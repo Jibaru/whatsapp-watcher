@@ -29,12 +29,12 @@ export class KapsoWhatsAppSender implements WhatsAppSender {
     try {
       await this.post(textPayload(message));
     } catch (error) {
-      if (!(error instanceof OutsideCustomerServiceWindowError) || !this.canUseTemplate(message)) {
+      if (!(error instanceof OutsideCustomerServiceWindowError) || !this.canUseTemplate()) {
         throw error;
       }
 
-      // A reminder that fires the next day is outside the window by definition; only an
-      // approved template can reopen the conversation.
+      // Everything sent now is a reminder, and a reminder for tomorrow is outside the window
+      // by definition; only an approved template can reopen the conversation.
       this.logger.info("falling_back_to_template", { template: this.options.reminderTemplate });
 
       await this.post(
@@ -43,8 +43,8 @@ export class KapsoWhatsAppSender implements WhatsAppSender {
     }
   }
 
-  private canUseTemplate(message: OutboundMessage): boolean {
-    return message.kind === "reminder" && this.options.reminderTemplate !== "";
+  private canUseTemplate(): boolean {
+    return this.options.reminderTemplate !== "";
   }
 
   private async post(payload: Record<string, unknown>): Promise<void> {

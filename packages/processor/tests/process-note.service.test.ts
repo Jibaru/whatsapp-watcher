@@ -64,8 +64,8 @@ function build(
 }
 
 describe("ProcessNoteService", () => {
-  it("turns a message into a stored note and announces it", async () => {
-    const { service, notes, publisher } = build();
+  it("turns a message into a stored note", async () => {
+    const { service, notes } = build();
 
     const output = await service.execute({ note: detail, receiveCount: 1 });
 
@@ -73,32 +73,36 @@ describe("ProcessNoteService", () => {
     expect(notes.saved[0]?.title).toBe("Llamar al proveedor");
     expect(notes.saved[0]?.owner).toBe("+51999000001");
     expect(notes.saved[0]?.dueAt?.toISOString()).toBe("2026-09-08T15:00:00.000Z");
-    expect(publisher.published[0]).toMatchObject({
-      noteId: "note-1",
-      to: "+51999000001",
-      owner: "+51999000001",
-      title: "Llamar al proveedor",
-      dueAt: "2026-09-08T15:00:00.000Z",
-    });
   });
 
-  it("always replies to the full international number", async () => {
-    const { service, publisher } = build();
+  it("says nothing back: a stored note is silence, only the reminder speaks", async () => {
+    const { service, publisher, scheduler } = build({
+      analysis: { title: "Nota", summary: "", tags: [], priority: "normal", confidence: 0.9 },
+    });
 
     await service.execute({ note: detail, receiveCount: 1 });
 
-    expect(publisher.published[0]?.to).toBe("+51999000001");
-    expect(publisher.published[0]?.owner).toBe("+51999000001");
+    expect(publisher.failures).toHaveLength(0);
+    expect(scheduler.scheduled).toHaveLength(0);
+  });
+
+  it("always writes to the full international number", async () => {
+    const { service, scheduler } = build();
+
+    await service.execute({ note: detail, receiveCount: 1 });
+
+    expect(scheduler.scheduled[0]?.detail.to).toBe("+51999000001");
+    expect(scheduler.scheduled[0]?.detail.owner).toBe("+51999000001");
   });
 
   it("falls back to the provider address only when the number could not be normalized", async () => {
-    const { service, publisher } = build({
+    const { service, scheduler } = build({
       source: { ...sourceMessage, from: "999000001", fromAddress: "999000001" },
     });
 
     await service.execute({ note: detail, receiveCount: 1 });
 
-    expect(publisher.published[0]?.to).toBe("999000001");
+    expect(scheduler.scheduled[0]?.detail.to).toBe("999000001");
   });
 
   it("writes the reminder and schedules it when the note has a due date", async () => {
@@ -180,7 +184,7 @@ describe("ProcessNoteService", () => {
     expect(error.retryable).toBe(false);
   });
 
-  it("marks the message FAILED and announces it when the error is permanent", async () => {
+  it("marks the message FAILED and announces the drop when the error is permanent", async () => {
     const { service, failures, publisher } = build({ source: { ...sourceMessage, kind: "video" } });
 
     await service.execute({ note: detail, receiveCount: 1 }).catch(() => undefined);
@@ -232,13 +236,14 @@ describe("ProcessNoteService", () => {
     expect(notes.saved[0]?.dueAt).toBeUndefined();
   });
 
-  it("does not announce a note it could not store", async () => {
-    const { service, publisher, notes } = build();
+  it("does not schedule a reminder for a note it could not store", async () => {
+    const { service, scheduler, notes } = build();
     notes.save = async () => {
       throw new Error("dynamo is down");
     };
 
     await expect(service.execute({ note: detail, receiveCount: 1 })).rejects.toThrow(/dynamo/);
-    expect(publisher.published).toHaveLength(0);
+    // A schedule that fires for a note nobody wrote would ring for something that does not exist.
+    expect(scheduler.scheduled).toHaveLength(0);
   });
 });

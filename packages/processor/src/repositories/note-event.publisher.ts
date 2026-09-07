@@ -2,23 +2,19 @@ import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge
 import {
   getLogContext,
   NOTE_FAILED,
-  NOTE_PROCESSED,
   PROCESSOR_EVENT_SOURCE,
   TransientError,
   type Logger,
   type NoteFailedDetail,
-  type NoteProcessedDetail,
 } from "@watcher/core";
-
-export type PublishNoteProcessedCommand = Omit<
-  NoteProcessedDetail,
-  "correlationId" | "conversationId"
->;
 
 export type PublishNoteFailedCommand = Omit<NoteFailedDetail, "correlationId" | "conversationId">;
 
+/**
+ * A processed note announces nothing: the user hears about it in the reminder or in the daily
+ * digest. Only a dropped note has to reach anyone, and it does so through the bus.
+ */
 export interface NoteEventPublisher {
-  publishNoteProcessed(command: PublishNoteProcessedCommand): Promise<void>;
   publishNoteFailed(command: PublishNoteFailedCommand): Promise<void>;
 }
 
@@ -28,12 +24,6 @@ export class EventBridgeNoteEventPublisher implements NoteEventPublisher {
     private readonly busName: string,
     private readonly logger: Logger,
   ) {}
-
-  async publishNoteProcessed(command: PublishNoteProcessedCommand): Promise<void> {
-    await this.publish(NOTE_PROCESSED, this.withTrace(command));
-
-    this.logger.info("note_processed_published", { noteId: command.noteId });
-  }
 
   async publishNoteFailed(command: PublishNoteFailedCommand): Promise<void> {
     await this.publish(NOTE_FAILED, this.withTrace(command));

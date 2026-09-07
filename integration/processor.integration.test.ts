@@ -1,3 +1,4 @@
+import { noteDayPartition } from "@watcher/core";
 import { afterAll, describe, expect, it } from "bun:test";
 import { Resource } from "sst";
 import {
@@ -43,6 +44,11 @@ describe("processor against dev", () => {
       expect(Array.isArray(note?.tags)).toBe(true);
       // The model was told the instant and the timezone, so it must resolve "mañana a las 10".
       expect(Number(note?.dueAtEpoch)).toBeGreaterThan(Math.floor(Date.now() / 1000));
+
+      // Written into NoteDigestIndex on the way in: a note missing these attributes exists but
+      // never reaches the daily summary, and nothing else would notice.
+      expect(note?.gsi2pk).toBe(noteDayPartition(new Date(), "America/Lima"));
+      expect(Number(note?.gsi2sk)).toBe(Number(note?.createdAtEpoch));
     },
     180_000,
   );

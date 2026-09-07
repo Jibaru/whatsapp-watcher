@@ -1,3 +1,9 @@
+export {
+  dayKey,
+  dayKeysBetween,
+  noteDayPartition,
+  NOTE_DAY_PREFIX,
+} from "./day.js";
 export { requireEnv } from "./env.js";
 export { hashIdentifier, hmacHex, safeCompare } from "./hash.js";
 export {
@@ -13,9 +19,7 @@ export {
   DispatchEnvelopeSchema,
   NOTE_FAILED,
   NoteFailedDetailSchema,
-  NOTE_PROCESSED,
   NOTE_RECEIVED,
-  NoteProcessedDetailSchema,
   NoteReceivedDetailSchema,
   PROCESSOR_EVENT_SOURCE,
   ReminderDueDetailSchema,
@@ -23,7 +27,6 @@ export {
   WATCHER_EVENT_SOURCE,
   type DispatchEnvelope,
   type NoteFailedDetail,
-  type NoteProcessedDetail,
   type NoteReceivedDetail,
   type ReminderDueDetail,
 } from "./events.js";

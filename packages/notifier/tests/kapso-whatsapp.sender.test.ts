@@ -51,8 +51,7 @@ function build(
 
 const message = {
   to: "+51999000001",
-  body: "Anotado ✅ Llamar al proveedor.",
-  kind: "confirmation" as const,
+  body: "⏰ Recordatorio: Llamar al proveedor",
 };
 
 describe("KapsoWhatsAppSender", () => {
@@ -100,13 +99,13 @@ describe("KapsoWhatsAppSender", () => {
     expect(error.retryable).toBe(false);
   });
 
-  it("falls back to the template when a reminder finds the window closed", async () => {
+  it("falls back to the template when the window is closed", async () => {
     const { sender, calls } = build(
       { status: 400, payload: { error: { code: 131047 } } },
       { template: "watcher_reminder" },
     );
 
-    await sender.send({ ...message, kind: "reminder" });
+    await sender.send(message);
 
     expect(calls).toHaveLength(2);
     expect(calls[1]?.body.type).toBe("template");
@@ -116,11 +115,8 @@ describe("KapsoWhatsAppSender", () => {
     });
   });
 
-  it("does not fall back for a confirmation, which is never outside the window", async () => {
-    const { sender, calls } = build(
-      { status: 400, payload: { error: { code: 131047 } } },
-      { template: "watcher_reminder" },
-    );
+  it("does not fall back while no approved template is configured", async () => {
+    const { sender, calls } = build({ status: 400, payload: { error: { code: 131047 } } });
 
     const error = await sender.send(message).catch((e) => e);
 

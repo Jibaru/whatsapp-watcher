@@ -18,6 +18,14 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "DailyDigest": {
+      "arn": string
+      "type": "sst.aws.SnsTopic"
+    }
+    "DigestFunction": {
+      "name": string
+      "type": "sst.aws.Function"
+    }
     "EvaluatorFunction": {
       "name": string
       "type": "sst.aws.Function"

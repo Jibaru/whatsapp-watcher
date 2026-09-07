@@ -11,18 +11,39 @@
     ],
     "views": [
       {
-        "id": "vuelta",
-        "label": "Vuelta al usuario",
+        "id": "recordatorio",
+        "label": "Recordatorio a su hora",
         "focus": [
           "processor",
           "scheduler",
-          "bus",
           "dispatch",
           "notifier",
           "kapso",
           "usuario"
         ],
-        "note": "La confirmación sale por el bus y el recordatorio por el Scheduler, pero comparten cola y consumidor."
+        "note": "Lo único que llega al WhatsApp del usuario. Anotar es silencioso: si la nota no pide hora, aquí no pasa nada."
+      },
+      {
+        "id": "resumen",
+        "label": "Resumen diario",
+        "focus": [
+          "cron",
+          "digest",
+          "sns-digest",
+          "correo"
+        ],
+        "note": "Cada 24 h el digest pregunta a DynamoDB qué se anotó y lo manda por correo. Nadie se lo empuja: es polling."
+      },
+      {
+        "id": "red-de-seguridad",
+        "label": "Red de seguridad",
+        "focus": [
+          "scheduler",
+          "evaluator",
+          "dispatch",
+          "notifier"
+        ],
+        "note": "Si el Scheduler no entrega, el barrido reencola lo que siga pendiente; pasada una hora lo da por expirado."
       },
       {
         "id": "fallo-salida",
@@ -43,18 +64,7 @@
           "sns",
           "correo"
         ],
-        "note": "Un solo topic y una suscripción por dirección: añadir a alguien de guardia no toca el código de las alarmas."
-      },
-      {
-        "id": "red-de-seguridad",
-        "label": "Red de seguridad",
-        "focus": [
-          "scheduler",
-          "evaluator",
-          "dispatch",
-          "notifier"
-        ],
-        "note": "Si el Scheduler no entrega, el barrido reencola lo que siga pendiente; pasada una hora lo da por expirado."
+        "note": "Dos topics con la misma lista de direcciones: darse de baja del resumen no deja a nadie sin alarmas."
       }
     ]
   },
@@ -63,7 +73,7 @@
       "id": "processor",
       "type": "backend",
       "label": "Lambda processor",
-      "sublabel": "nota lista",
+      "sublabel": "nota guardada",
       "pos": [
         50,
         80
@@ -74,10 +84,10 @@
       ]
     },
     {
-      "id": "bus",
-      "type": "messagebus",
-      "label": "EventBridge",
-      "sublabel": "bus",
+      "id": "scheduler",
+      "type": "cloud",
+      "label": "EventBridge Scheduler",
+      "sublabel": "uno por recordatorio",
       "pos": [
         275,
         80
@@ -85,7 +95,8 @@
       "size": [
         150,
         60
-      ]
+      ],
+      "tag": "se borra al dispararse"
     },
     {
       "id": "dispatch",
@@ -99,7 +110,8 @@
       "size": [
         150,
         60
-      ]
+      ],
+      "tag": "un solo tipo de mensaje"
     },
     {
       "id": "notifier",
@@ -145,6 +157,35 @@
       ]
     },
     {
+      "id": "evaluator",
+      "type": "backend",
+      "label": "Lambda evaluator",
+      "sublabel": "barrido cada 5 min",
+      "pos": [
+        275,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "lee AlarmDueIndex"
+    },
+    {
+      "id": "dispatch-dlq",
+      "type": "messagebus",
+      "label": "SQS DLQ",
+      "sublabel": "recordatorios sin enviar",
+      "pos": [
+        500,
+        225
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
       "id": "alarms",
       "type": "cloud",
       "label": "CloudWatch",
@@ -161,8 +202,8 @@
     {
       "id": "sns",
       "type": "messagebus",
-      "label": "SNS",
-      "sublabel": "ops-alerts · fan-out",
+      "label": "SNS ops-alerts",
+      "sublabel": "fan-out de alarmas",
       "pos": [
         950,
         225
@@ -175,8 +216,8 @@
     {
       "id": "correo",
       "type": "external",
-      "label": "Operadores",
-      "sublabel": "suscripciones por correo",
+      "label": "Correos configurados",
+      "sublabel": "OpsEmails",
       "pos": [
         1175,
         225
@@ -185,13 +226,27 @@
         150,
         60
       ],
-      "tag": "una por dirección"
+      "tag": "una suscripción por dirección"
     },
     {
-      "id": "dispatch-dlq",
-      "type": "messagebus",
-      "label": "SQS DLQ",
-      "sublabel": "alarmas sin enviar",
+      "id": "cron",
+      "type": "cloud",
+      "label": "EventBridge",
+      "sublabel": "regla schedule 24 h",
+      "pos": [
+        275,
+        370
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "digest",
+      "type": "backend",
+      "label": "Lambda digest",
+      "sublabel": "resumen del día",
       "pos": [
         500,
         370
@@ -199,70 +254,38 @@
       "size": [
         150,
         60
-      ]
+      ],
+      "tag": "lee NoteDigestIndex"
     },
     {
-      "id": "scheduler",
-      "type": "cloud",
-      "label": "EventBridge Scheduler",
-      "sublabel": "uno por recordatorio",
+      "id": "sns-digest",
+      "type": "messagebus",
+      "label": "SNS daily-digest",
+      "sublabel": "fan-out del resumen",
       "pos": [
-        275,
-        225
-      ],
-      "size": [
-        150,
-        60
-      ],
-      "tag": "se borra al dispararse"
-    },
-    {
-      "id": "evaluator",
-      "type": "backend",
-      "label": "Lambda evaluator",
-      "sublabel": "barrido cada 5 min",
-      "pos": [
-        275,
+        950,
         370
       ],
       "size": [
         150,
         60
-      ],
-      "tag": "lee AlarmDueIndex"
+      ]
     }
   ],
   "connections": [
     {
-      "id": "emite-procesado",
-      "from": "processor",
-      "to": "bus",
-      "label": "note.processed",
-      "variant": "emphasis"
-    },
-    {
-      "id": "regla-salida",
-      "from": "bus",
-      "to": "dispatch",
-      "label": "note.processed",
-      "variant": "emphasis"
-    },
-    {
       "id": "programa",
       "from": "processor",
       "to": "scheduler",
-      "label": "programa el recordatorio"
+      "label": "si hay hora",
+      "variant": "emphasis"
     },
     {
       "id": "alarma-vencida",
       "from": "scheduler",
       "to": "dispatch",
       "label": "alarm.due",
-      "variant": "emphasis",
-      "labelAt": [
-        520,
-        180
-      ]
+      "variant": "emphasis"
     },
     {
       "id": "barrido",
@@ -271,8 +294,8 @@
       "label": "no entregado",
       "variant": "dashed",
       "labelAt": [
-        330,
-        330
+        450,
+        186
       ]
     },
     {
@@ -282,10 +305,10 @@
       "variant": "emphasis"
     },
     {
-      "id": "envia-alarma",
+      "id": "envia-recordatorio",
       "from": "notifier",
       "to": "kapso",
-      "label": "envía alarma",
+      "label": "envía aviso",
       "variant": "emphasis"
     },
     {
@@ -308,8 +331,7 @@
       "from": "dispatch-dlq",
       "to": "alarms",
       "label": "DLQ no vacía",
-      "variant": "security",
-      "labelDy": -54
+      "variant": "security"
     },
     {
       "id": "telemetria",
@@ -322,16 +344,16 @@
       "via": [
         [
           125,
-          490
+          325
         ],
         [
           800,
-          490
+          325
         ]
       ],
       "labelAt": [
         400,
-        450
+        311
       ]
     },
     {
@@ -347,16 +369,41 @@
       "to": "correo",
       "label": "email ×N",
       "variant": "security"
+    },
+    {
+      "id": "dispara-digest",
+      "from": "cron",
+      "to": "digest",
+      "label": "cada 24 h"
+    },
+    {
+      "id": "publica-resumen",
+      "from": "digest",
+      "to": "sns-digest",
+      "label": "si hay algo que contar",
+      "variant": "emphasis"
+    },
+    {
+      "id": "correo-resumen",
+      "from": "sns-digest",
+      "to": "correo",
+      "label": "email ×N",
+      "variant": "emphasis",
+      "toSide": "bottom",
+      "labelAt": [
+        1140,
+        348
+      ]
     }
   ],
   "cards": [
     {
       "dot": "violet",
-      "title": "Una sola salida",
+      "title": "Una sola salida a WhatsApp",
       "items": [
-        "La confirmación sale por el bus; el recordatorio, por EventBridge Scheduler",
-        "Ambos caen en la misma cola con el mismo sobre: un solo consumidor",
-        "Si el Scheduler falla, el evaluator reencola lo que quedó pendiente"
+        "Solo el recordatorio llega al usuario: anotar no responde nada",
+        "La cola de salida lleva un único tipo de mensaje, alarm.due",
+        "Si el Scheduler no entrega, el evaluator reencola lo pendiente"
       ]
     },
     {
@@ -370,11 +417,11 @@
     },
     {
       "dot": "amber",
-      "title": "Observabilidad",
+      "title": "Dos topics, una lista",
       "items": [
-        "Las dos DLQ tienen la misma alarma de profundidad",
-        "Un topic de SNS reparte cada alarma a todas las direcciones suscritas",
-        "correlationId común en todas las lambdas para seguir una nota"
+        "ops-alerts lleva las alarmas; daily-digest, el resumen de cada día",
+        "Las mismas direcciones se suscriben a los dos, por separado",
+        "Un resumen vacío no se manda: lo que prueba que sigue vivo es digest_runs"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 import { PutCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { Logger } from "@watcher/core";
+import { noteDayPartition, type Logger } from "@watcher/core";
 import type { Note } from "../domain/note.js";
 
 export interface NoteRepository {
@@ -11,6 +11,7 @@ export class DynamoNoteRepository implements NoteRepository {
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
     private readonly logger: Logger,
+    private readonly timeZone: string,
   ) {}
 
   async save(note: Note): Promise<void> {
@@ -31,6 +32,10 @@ export class DynamoNoteRepository implements NoteRepository {
       status: "OPEN",
       createdAtEpoch: Math.floor(note.createdAt.getTime() / 1000),
       dueAtEpoch: note.dueAt === undefined ? undefined : Math.floor(note.dueAt.getTime() / 1000),
+      // NoteDigestIndex: the digest asks for one local day at a time, so it never reads the
+      // whole history to summarise the last 24 hours.
+      gsi2pk: noteDayPartition(note.createdAt, this.timeZone),
+      gsi2sk: Math.floor(note.createdAt.getTime() / 1000),
     };
 
     await this.client.send(new PutCommand({ TableName: this.tableName, Item: item }));

@@ -1,4 +1,6 @@
+import { subscribeEmails } from "./alerts";
 import { api } from "./api";
+import { digest } from "./digest";
 import {
   alarmDispatchDlq,
   alarmDispatchQueue,
@@ -12,30 +14,9 @@ import { outbox } from "./outbox";
 import { processor } from "./processor";
 import { table } from "./storage";
 
-/** Comma separated. One topic, one subscription per address: that is the fan-out. */
-export const opsEmails = new sst.Secret("OpsEmails");
-
 export const opsAlerts = new sst.aws.SnsTopic("OpsAlerts");
 
-// SST only subscribes lambdas, and these have to reach people. The list arrives as an Output,
-// so the subscriptions are created inside apply: they do not show up in preview, only on deploy.
-opsEmails.value.apply((raw) => {
-  const addresses = raw
-    .split(",")
-    .map((address) => address.trim())
-    .filter((address) => address !== "");
-
-  for (const address of addresses) {
-    // Named after the address so adding or removing one does not churn the others.
-    const slug = address.replace(/[^a-zA-Z0-9]/g, "-");
-
-    new aws.sns.TopicSubscription(`OpsAlertsEmail-${slug}`, {
-      topic: opsAlerts.arn,
-      protocol: "email",
-      endpoint: address,
-    });
-  }
-});
+subscribeEmails("OpsAlertsEmail", opsAlerts);
 
 const isProduction = $app.stage === "production";
 const NAMESPACE = "WhatsAppWatcher";
@@ -63,6 +44,7 @@ const lambdas = [
   { key: "Processor", fn: processor, timeoutMs: 30_000 },
   { key: "Notifier", fn: notifier, timeoutMs: 30_000 },
   { key: "Evaluator", fn: evaluator, timeoutMs: 60_000 },
+  { key: "Digest", fn: digest, timeoutMs: 60_000 },
 ];
 
 // 1. A note ran out of attempts. The one alarm that always means work was lost.
@@ -239,7 +221,23 @@ alarm("RemindersSwept", {
   comparisonOperator: "GreaterThanOrEqualToThreshold",
 });
 
-// 11. Notes are being produced but not reaching the user.
+// 10d. A cron that stops existing does not fail: it stops appearing. Only the absence of the
+// metric can say so, which is why the run is counted even on a day with nothing to report.
+alarm("DigestNotRunning", {
+  alarmDescription: "The daily digest has not run in 24 hours",
+  namespace: NAMESPACE,
+  metricName: "digest_runs",
+  dimensions: businessDimensions("digest"),
+  statistic: "Sum",
+  period: 86_400,
+  evaluationPeriods: 1,
+  threshold: 1,
+  comparisonOperator: "LessThanThreshold",
+  // Here missing data IS the alarm.
+  treatMissingData: "breaching",
+});
+
+// 11. Reminders are being scheduled but not reaching the user.
 alarm("AlarmsNotDelivered", {
   alarmDescription: "More than 10% of the notifications failed in the last hour",
   comparisonOperator: "GreaterThanThreshold",
@@ -304,6 +302,7 @@ const dashboardBody = $resolve({
   processorName: processor.name,
   notifierName: notifier.name,
   evaluatorName: evaluator.name,
+  digestName: digest.name,
   alarmArns: $resolve(created.map((metricAlarm) => metricAlarm.arn)),
 }).apply((ids) => {
   const stage = $app.stage;
@@ -433,17 +432,23 @@ const dashboardBody = $resolve({
         { annotations: { horizontal: [{ label: "confianza mínima", value: 0.5 }] } },
       ),
 
-      metric(0, 18, 12, "Avisos al usuario", [
+      metric(0, 18, 8, "Recordatorios al usuario", [
         business("alarms_attempted", "notifier", "intentados"),
         business("alarms_sent", "notifier", "enviados"),
         business("alarms_failed", "notifier", "fallidos"),
       ]),
-      metric(12, 18, 12, "Errores por lambda", [
+      metric(8, 18, 8, "Resumen diario", [
+        business("digest_runs", "digest", "ejecuciones"),
+        business("digest_sent", "digest", "correos enviados"),
+        business("digest_notes", "digest", "notas resumidas"),
+      ]),
+      metric(16, 18, 8, "Errores por lambda", [
         lambdaErrors(ids.ingestName, "ingest"),
         lambdaErrors(ids.outboxName, "outbox"),
         lambdaErrors(ids.processorName, "processor"),
         lambdaErrors(ids.notifierName, "notifier"),
         lambdaErrors(ids.evaluatorName, "evaluator"),
+        lambdaErrors(ids.digestName, "digest"),
       ]),
 
       {

@@ -3,8 +3,6 @@ import type { Logger } from "@watcher/core";
 export interface OutboundMessage {
   readonly to: string;
   readonly body: string;
-  /** A reminder can fall outside the 24 hour window; a confirmation never does. */
-  readonly kind: "confirmation" | "reminder";
 }
 
 export interface WhatsAppSender {

@@ -1,7 +1,8 @@
 # WhatsApp Watcher
 
-Notetaker de WhatsApp: KAPSO entrega los mensajes, AWS los procesa con Bedrock y devuelve
-recordatorios. El diseño completo está en `docs/ENUNCIADO.md` y el diagrama en `docs/arquitectura.html`.
+Notetaker de WhatsApp: KAPSO entrega los mensajes, AWS los procesa con un modelo y devuelve
+recordatorios a su hora, más un resumen diario por correo. Anotar no responde nada. El diseño
+completo está en `docs/ENUNCIADO.md` y el diagrama en `docs/arquitectura.html`.
 
 ## Monorepo
 
@@ -12,16 +13,17 @@ packages/
   core/     @watcher/core     logger, hash, helpers de entorno
   ingest/   @watcher/ingest   lambda del webhook de KAPSO
   outbox/   @watcher/outbox   lambda del stream de DynamoDB al bus
-  processor/ @watcher/processor lambda que consume de SQS y llama a Bedrock
-  notifier/ @watcher/notifier  lambda que avisa al usuario por WhatsApp
+  processor/ @watcher/processor lambda que consume de SQS y llama al modelo
+  notifier/ @watcher/notifier  lambda que envía el recordatorio por WhatsApp
+  evaluator/ @watcher/evaluator lambda del barrido de recordatorios vencidos
+  digest/   @watcher/digest   lambda del resumen diario por correo
 infra/      un fichero por lambda (api.ts, ingest.ts), importados desde sst.config.ts
 integration/ tests contra el stage dev real (fuera de packages: cruzan varios modulos)
 docs/       enunciado y diagrama
 ```
 
-Las lambdas que faltan (`evaluator`, `notifier`) van cada una en su propio
-`packages/<nombre>` con su `infra/<nombre>.ts`. Lo compartido sube a `@watcher/core`, nunca se
-importa entre módulos de lambda.
+Una lambda nueva va en su propio `packages/<nombre>` con su `infra/<nombre>.ts`. Lo compartido
+sube a `@watcher/core`, nunca se importa entre módulos de lambda.
 
 ## Estructura de cada lambda
 
@@ -58,6 +60,11 @@ handler     HTTP, formato del proveedor, validación Zod → construye el DTO de
   intentos ni ensuciar la DLQ. Un error desconocido cuenta como transitorio. Al envolver un error, se
   conserva la causa.
 - Fail-closed: si falta configuración, se lanza en el arranque en frío, no a mitad de petición.
+- **Al usuario solo se le habla cuando hay algo que decirle**: el recordatorio a su hora y el resumen
+  diario. Guardar una nota no produce ningún mensaje. Antes de añadir una salida hacia el usuario,
+  la pregunta es si le aporta algo que no supiera ya.
+- Si el productor y el consumidor de una clave tienen que coincidir en cómo se calcula (el día local
+  de `NoteDigestIndex`, por ejemplo), esa función vive en `@watcher/core` y no se duplica.
 - Commits: conventional commits, en inglés, sin `Co-Authored-By` ni trailers.
 
 ## Comandos

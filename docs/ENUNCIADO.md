@@ -8,8 +8,8 @@ Hoy las notas, pendientes y avisos operativos se pierden en conversaciones de Wh
 como foto de una pizarra/etiqueta o como nota de voz, y nadie las estructura ni las recuerda después.
 
 **WhatsApp Watcher** es un *notetaker* conversacional: el usuario manda un mensaje por WhatsApp (texto, imagen
-o audio), el sistema lo entiende con IA, lo guarda estructurado y **devuelve una alarma/recordatorio por
-WhatsApp** cuando corresponde (a una hora pedida, o cuando se cumple una regla).
+o audio), el sistema lo entiende con IA, lo guarda estructurado y **devuelve un recordatorio por WhatsApp**
+a la hora pedida. Anotar es silencioso: lo que se anotó se cuenta una vez al día por correo.
 
 El proyecto reutiliza el stack ya probado en JohoFit (TypeScript ESM + Bun, SST v4 sobre AWS, Hono + Zod,
 DynamoDB single-table, KAPSO como pasarela de WhatsApp), pero **no comparte tablas ni cuenta lógica** con
@@ -21,8 +21,9 @@ Construir un pipeline **event-driven, asíncrono y tolerante a fallos** en AWS q
 
 1. Reciba mensajes de WhatsApp vía KAPSO.
 2. Persista el evento crudo de forma idempotente antes de procesar nada.
-3. Procese el contenido con **Amazon Bedrock** (transcripción/descripción + extracción estructurada).
-4. Genere notas y **alarmas programadas** que se entregan de vuelta por WhatsApp.
+3. Procese el contenido con un **modelo multimodal** (transcripción/descripción + extracción estructurada).
+4. Genere notas y **recordatorios programados** que se entregan de vuelta por WhatsApp, y un **resumen
+   diario por correo** de todo lo anotado.
 5. Sea **observable y auto-alertante**: si algo falla, el operador se entera por correo, y ningún mensaje se
    pierde silenciosamente (DLQ + redrive).
 
@@ -34,8 +35,8 @@ Construir un pipeline **event-driven, asíncrono y tolerante a fallos** en AWS q
 - Interpretación con IA: tipo de nota, resumen, etiquetas, prioridad y fecha/hora del recordatorio expresada
   en lenguaje natural ("recuérdame el viernes a las 8").
 - Almacenamiento de la nota estructurada y del media asociado.
-- Programación y envío de recordatorios/alarmas por WhatsApp.
-- Reglas de alarma simples, evaluadas periódicamente (ver §6.3).
+- Programación y envío de recordatorios por WhatsApp, **solo cuando la nota pide uno**.
+- Resumen diario por correo de lo anotado y de lo que vence mañana (ver §6.3).
 - Manejo de errores con reintentos, DLQ, alarmas operativas y capacidad de reproceso.
 - Dashboard y alarmas de CloudWatch, notificación por correo vía SNS.
 - Entornos `dev` y `production`, con **fail-closed** en `dev` (allowlist de destinatarios).
@@ -52,9 +53,9 @@ Construir un pipeline **event-driven, asíncrono y tolerante a fallos** en AWS q
 
 | Actor | Descripción |
 |---|---|
-| **Usuario final** | Manda notas por WhatsApp y recibe alarmas en el mismo hilo. |
+| **Usuario final** | Manda notas por WhatsApp y recibe sus recordatorios en el mismo hilo. |
 | **KAPSO** | Pasarela WhatsApp Business: entrega inbound por webhook y expone API para outbound. |
-| **Operador / on-call** | Recibe correos de SNS ante fallos; hace redrive de la DLQ. |
+| **Operador / on-call** | Recibe correos de SNS ante fallos y el resumen diario; hace redrive de la DLQ. |
 | **Sistema (AWS)** | El pipeline descrito abajo. |
 
 ## 5. Arquitectura objetivo
@@ -77,22 +78,25 @@ flowchart LR
   SQS --> L2[Lambda processor]
   L1 -->|media original| S3[(S3 media)]
   S3 -->|lee media| L2
-  L2 -->|Converse| BR[Amazon Bedrock]
+  L2 -->|generateObject| AI[OpenAI]
   L2 -->|nota estructurada| DDB
-  L2 -->|note.processed| EB
-  L2 -->|schedule one-time| SCH[EventBridge Scheduler]
+  L2 -->|solo si hay dueAt| SCH[EventBridge Scheduler]
   EB -->|rule schedule 5 min| L3[Lambda evaluator]
   L3 --> SQS2[SQS alarm-dispatch]
   SQS2 -.-> DLQ2[SQS DLQ alarmas]
   SCH --> SQS2
   SQS2 --> L4[Lambda notifier]
-  L4 -->|send message| K
-  K -->|alarma| U
+  L4 -->|recordatorio| K
+  K -->|recordatorio| U
+  EB -->|rule schedule 24 h| L5[Lambda digest]
+  DDB -->|notas del dia| L5
+  L5 --> SNSD[SNS daily-digest] --> MAIL2[Correos configurados]
   L2 --> CW[CloudWatch Logs y Metrics]
   L4 --> CW
+  L5 --> CW
   DLQ --> ALM[CloudWatch Alarms]
   CW --> ALM
-  ALM --> SNS[SNS ops-alerts] --> MAIL[Correo del operador]
+  ALM --> SNS[SNS ops-alerts] --> MAIL2
 ```
 
 ### 5.1 Componentes y responsabilidad
@@ -103,18 +107,19 @@ flowchart LR
 | 2 | **Lambda `ingest`** | Verificar el secret/firma de KAPSO, validar payload con Zod, **descargar el media y guardarlo en S3**, y escribir el evento crudo en DynamoDB de forma **idempotente**. Esa es su **única escritura**: no publica eventos. | Guarda el media porque la URL de KAPSO caduca; nunca llama a Bedrock. Presupuesto: < 5 s con media, < 1 s sin él. |
 | 3 | **DynamoDB `WatcherMain`** | Single-table: evento crudo, nota estructurada, recordatorio y regla de alarma. | Stream `NEW_AND_OLD_IMAGES`. **Sin TTL**: el histórico no caduca (§7). |
 | 3b | **Lambda `outbox`** | Leer el stream de DynamoDB y publicar `note.received` en EventBridge por cada `INSERT` de un `RAW#`. | Patrón *outbox transaccional*: el evento se deriva de un dato ya confirmado, así que no se pierde ni se inventa. |
-| 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.processed`, `alarm.due`, `note.failed`. Además reglas `schedule` para el evaluador. | Permite añadir consumidores nuevos sin tocar el productor. |
+| 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.failed`. Además reglas `schedule` para el evaluador (5 min) y para el resumen diario (24 h). | Permite añadir consumidores nuevos sin tocar el productor. |
 | 5 | **SQS `note-processing` (+ DLQ)** | Buffer y reintentos del trabajo pesado. | `maxReceiveCount = 3`; `visibilityTimeout ≥ 6×` el timeout de la Lambda. |
-| 6 | **Lambda `processor`** | Leer el media desde S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
+| 6 | **Lambda `processor`** | Leer el media desde S3, invocar el modelo, construir la nota estructurada, persistirla y —**solo si la nota pide un recordatorio**— programarlo. No avisa nada al usuario al anotar. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
 | 7 | **OpenAI (vía AI SDK)** | Transcribir audio, describir imagen, clasificar y extraer campos estructurados. | `generateObject` con schema Zod y `transcribe` para las notas de voz. La API key va como SST Secret. Se cambió Bedrock por esto porque **una sola API cubre texto, imagen y audio** y no exige formularios de acceso por proveedor. El adaptador es una implementación de `NoteAnalyzer`: volver a Bedrock es cambiar una clase. |
 | 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: transición a clases más baratas a los 30 días, **sin expiración**. |
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
-| 10 | **Lambda `evaluator`** | Cada 5 min barre los recordatorios vencidos que siguen `PENDING` y los reencola. Es la red de seguridad bajo EventBridge Scheduler. | Lee `AlarmDueIndex`, nunca escanea. Ventana de gracia de 2 min para no competir con el Scheduler, y a partir de 1 h marca `EXPIRED`: sonar con horas de retraso es peor que no sonar. **Las reglas de §6.3 no están**: evaluarlas sin forma de crearlas sería una máquina sin entrada. |
+| 10 | **Lambda `evaluator`** | Cada 5 min barre los recordatorios vencidos que siguen `PENDING` y los reencola. Es la red de seguridad bajo EventBridge Scheduler. | Lee `AlarmDueIndex`, nunca escanea. Ventana de gracia de 2 min para no competir con el Scheduler, y a partir de 1 h marca `EXPIRED`: sonar con horas de retraso es peor que no sonar. **No evalúa reglas declarativas**: sin forma de crear un `RULE#` sería una máquina sin entrada (§6.3). |
 | 11 | **SQS `alarm-dispatch` (+ DLQ)** | Cola de salida: garantiza que un envío fallido a KAPSO se reintenta. | Misma política de redrive. |
-| 12 | **Lambda `notifier`** | Enviar el mensaje por KAPSO (template o free-form según la ventana de 24 h) y marcar la alarma como enviada. | **Fail-closed**: en `dev` solo destinatarios de la allowlist. |
+| 12 | **Lambda `notifier`** | Enviar el **recordatorio** por KAPSO (template o free-form según la ventana de 24 h) y marcarlo como enviado. Es lo único que llega al WhatsApp del usuario. | **Fail-closed**: en `dev` solo destinatarios de la allowlist. |
+| 12b | **Lambda `digest`** | Cada 24 h leer las notas del día en `NoteDigestIndex` y los recordatorios de mañana en `AlarmDueIndex`, componer el resumen y publicarlo en SNS. | Es *polling*, no eventos: nadie le empuja el resumen, él pregunta. Si no hubo nada que contar no manda correo (§6.3). |
 | 13 | **CloudWatch** | Logs JSON estructurados, métricas EMF de negocio, dashboard único del pipeline. | `correlationId = messageId` en todos los logs. |
 | 14 | **CloudWatch Alarms** | Detectar fallo técnico y de negocio (§8). | Todas apuntan al topic SNS. |
-| 15 | **SNS `ops-alerts`** | Fan-out real: un topic y **una suscripción por dirección**, en `OpsEmails` (separadas por comas). Añadir a alguien de guardia no toca el código de las alarmas. | Un topic por stage. Cada dirección debe confirmar su suscripción por correo antes de recibir nada. |
+| 15 | **SNS `ops-alerts` y `daily-digest`** | Fan-out real: **una suscripción por dirección**, tomadas de `OpsEmails` (separadas por comas). Añadir a alguien de guardia no toca el código de las alarmas. Son **dos topics con la misma lista**: quien no quiera el resumen puede darse de baja sin perder las alarmas, y el resumen diario nunca compite con una alarma en la misma bandeja. | Dos topics por stage. Cada dirección debe confirmar cada suscripción por correo antes de recibir nada. |
 | 16 | **KAPSO** | Inbound (webhook) y outbound (envío de la alarma). | Secret compartido + allowlist en `dev`. |
 
 ## 6. Flujos funcionales
@@ -140,37 +145,52 @@ flowchart LR
 7. La regla enruta a `note-processing`; `processor` toma el mensaje.
 8. `processor`:
    - lee el media de S3 con la `mediaKey` del evento;
-   - llama a Bedrock con el texto/imagen/audio y un schema de salida;
+   - llama al modelo con el texto/imagen/audio y un schema de salida;
    - obtiene `{ tipo, título, resumen, etiquetas[], prioridad, dueAt?, timezone, confianza }`;
-   - escribe `NOTE#<id>` con `status = PROCESSED`;
-   - si hay `dueAt`, crea el recordatorio y su schedule en EventBridge Scheduler;
-   - emite `note.processed`.
-9. `notifier` confirma al usuario: "Anotado ✅ — te aviso mañana 10:00".
+   - escribe `NOTE#<messageId>` con `status = OPEN` y sus atributos de `NoteDigestIndex`;
+   - **si hay `dueAt`**, crea el recordatorio y su schedule en EventBridge Scheduler.
+9. Ahí acaba la captura. El usuario **no recibe nada**: anotar es silencioso. Solo hablan el recordatorio a
+   su hora (§6.2) y el resumen diario por correo (§6.3).
 
-### 6.2 Flujo de salida (confirmación y alarma programada)
+### 6.2 Flujo de salida — el recordatorio, a su hora
 
-Todo lo que sale hacia el usuario pasa por la misma cola, `alarm-dispatch`, y por el mismo consumidor. El bus
-se reutiliza como ruteador: una regla lleva `note.processed` y `alarm.due` a esa cola.
+El usuario solo recibe WhatsApp cuando hay algo que recordarle. La cola de salida `alarm-dispatch` lleva
+un único tipo de mensaje, `alarm.due`, y la vacía un único consumidor:
 
-1. **Confirmación**: `processor` emite `note.processed` → regla → `alarm-dispatch` → `notifier` responde
-   "Anotado ✅".
-2. **Recordatorio**: llega la hora → EventBridge Scheduler emite `alarm.due` → misma regla → misma cola.
-3. `notifier` lee el mensaje, comprueba que la alarma sigue `PENDING` (idempotencia) y envía por KAPSO.
+1. `processor` guardó `ALARM#<dueAtEpoch>#<alarmId>` en `PENDING` y creó un schedule *one-time* en
+   EventBridge Scheduler para esa hora exacta.
+2. Llega la hora → el Scheduler pone `alarm.due` en `alarm-dispatch`. Si el schedule nunca se creó o su
+   entrega se perdió, el `evaluator` lo rescata en su barrido y encola el mismo sobre.
+3. `notifier` lee el mensaje, comprueba que el recordatorio sigue `PENDING` (idempotencia) y envía por KAPSO.
 4. Marca `SENT` con `sentAtEpoch`. Si KAPSO devuelve error transitorio → excepción → reintento SQS → **DLQ de
    salida**, con su propia alarma en CloudWatch.
 
 La cola existe justo para esto: sin ella, un fallo de KAPSO al enviar se perdería en el aire.
 
-### 6.3 Flujo de alarma por regla
+**Por qué ya no hay confirmación.** Antes cada nota disparaba un "Anotado ✅" inmediato. Se quitó: repetía en
+WhatsApp lo que el usuario acababa de escribir, y obligaba al bus a rutear `note.processed` hacia la cola de
+salida solo para eso. Con ello desaparecen una regla de EventBridge, un tipo de evento, una rama del
+`notifier` y la ambigüedad de una cola con dos clases de mensaje. Lo anotado se cuenta en el resumen diario;
+lo que corre prisa, en el recordatorio.
 
-Reglas soportadas en v1 (declarativas, guardadas por usuario):
+### 6.3 Flujo de resumen diario (`digest`)
 
-- **Urgencia** — si Bedrock clasifica `prioridad = alta`, avisar de inmediato (no espera al evaluador).
-- **Silencio** — si el usuario no manda ninguna nota en `N` días, avisar.
-- **Pendientes acumulados** — si hay `≥ N` notas `OPEN` con `dueAt` vencido, mandar un resumen diario.
+Una regla `schedule` de EventBridge dispara `digest` una vez cada 24 h (13:00 UTC = 08:00 `America/Lima`):
 
-El `evaluator` corre cada 5 min por una regla `schedule` de EventBridge y encola en `alarm-dispatch` lo que
-deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` para no repetirse.
+1. Consulta `NoteDigestIndex` por rango: las notas creadas en la ventana de 24 h, en orden de llegada.
+2. Consulta `AlarmDueIndex`: los recordatorios `PENDING` que vencen en las próximas 24 h.
+3. Compone un correo en texto plano —cuántas notas, cada una con su hora, su prioridad y si dejó
+   recordatorio, más la agenda de mañana— y lo publica en el topic SNS `daily-digest`, que hace fan-out a
+   las direcciones ya configuradas.
+4. Cuenta `digest_runs` siempre y `digest_sent` solo cuando salió correo.
+
+**Si no hubo nada que contar, no manda correo.** Un resumen vacío cada día es ruido, y el ruido acaba
+arrastrando consigo lo que sí importaba. Que el proceso siga vivo no lo demuestra el correo sino
+`digest_runs`: si esa métrica falta durante 24 h salta `DigestNotRunning` (§8.2).
+
+**Reglas declarativas por usuario** (urgencia, silencio, pendientes acumulados) quedan **fuera de v1**: sin
+forma de crear un `RULE#` serían una máquina sin entrada. De las tres, la única que se echaba de menos —el
+resumen periódico— es exactamente este flujo, y no necesita reglas para existir.
 
 ### 6.4 Flujo de fallo (requisito explícito del proyecto)
 
@@ -188,6 +208,8 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 | Lote SQS con un mensaje malo | `ReportBatchItemFailures`: solo ese mensaje se reintenta, el resto se confirma. |
 | Reproceso horas o días después | El media sigue en S3 aunque la URL de KAPSO haya caducado: el reproceso es siempre posible. |
 | Reproceso | El operador hace *redrive* de la DLQ a la cola principal; la idempotencia evita notas duplicadas (§6.5). |
+| `digest` no puede leer el índice o publicar en SNS | La Lambda falla y salta `LambdaErrorsDigest`. No hay nada que recuperar: el resumen se recalcula desde DynamoDB en el siguiente ciclo, no se acumula en ninguna cola. |
+| El `digest` deja de ejecutarse | `digest_runs` sin datos en 24 h → `DigestNotRunning`. Un cron que desaparece no falla: deja de aparecer, y solo la ausencia de la métrica lo delata. |
 
 ### 6.5 Redrive: cómo se recupera lo que cayó en la DLQ
 
@@ -208,7 +230,7 @@ duplicarse.
 | Entidad | `pk` | `sk` | Atributos clave |
 |---|---|---|---|
 | Evento crudo | `USER#<phoneE164>` | `RAW#<messageId>` | `payload`, `mediaKey`, `receivedAtEpoch` |
-| Nota | `USER#<phoneE164>` | `NOTE#<createdAtEpoch>#<noteId>` | `type`, `title`, `summary`, `tags[]`, `priority`, `status`, `mediaKey`, `modelId`, `confidence` |
+| Nota | `USER#<phoneE164>` | `NOTE#<messageId>` | `noteId`, `title`, `summary`, `tags[]`, `priority`, `status`, `mediaKey`, `confidence`, `createdAtEpoch`, `gsi2pk`, `gsi2sk` |
 | Recordatorio | `USER#<phoneE164>` | `ALARM#<dueAtEpoch>#<alarmId>` | `noteId`, `status` (`PENDING`/`SENT`/`FAILED`), `scheduleName` |
 | Regla | `USER#<phoneE164>` | `RULE#<ruleId>` | `kind`, `params`, `enabled` |
 
@@ -228,10 +250,12 @@ media son el histórico del usuario y se conservan. Dos consecuencias:
 
 **GSIs**
 
-- `AlarmDueIndex` — `gsi1pk = ALARM#<status>`, `gsi1sk = <dueAtEpoch>` → barrido de vencidos. **Creado**.
-  Solo los recordatorios `PENDING` llevan estos atributos: al enviarse o expirar se quitan, así que el
-  índice contiene únicamente lo que queda por hacer y el barrido no paga por leer el histórico.
-- `NoteStatusIndex` — `gsi2pk = STATUS#<status>`, `gsi2sk = <createdAtEpoch>` → notas fallidas / abiertas.
+- `AlarmDueIndex` — `gsi1pk = ALARM#<status>`, `gsi1sk = <dueAtEpoch>` → barrido de vencidos y agenda de
+  mañana. **Creado**. Solo los recordatorios `PENDING` llevan estos atributos: al enviarse o expirar se
+  quitan, así que el índice contiene únicamente lo que queda por hacer y nadie paga por leer el histórico.
+- `NoteDigestIndex` — `gsi2pk = NOTE#<yyyy-mm-dd>` (el día en `America/Lima`), `gsi2sk = <createdAtEpoch>`
+  → las notas de un día. **Creado**. La partición es el día y no una constante: un único `NOTE#` acumularía
+  el histórico entero en una partición caliente, mientras que una ventana de 24 h toca como mucho dos días.
 - `EntityTypeIndex` — `gsi3pk = <entityType>`, `gsi3sk = <createdAtEpoch>` → administración y métricas.
 
 ### 7.1 Errores como parte del proceso
@@ -248,8 +272,9 @@ Un error desconocido se trata como transitorio: acaba en la DLQ, donde lo ve una
 tragárselo. Los wrappers conservan la causa original (`describeError`), porque un `ModelUnavailableError`
 sin su causa no dice nada.
 
-**Pendiente**: cuando un error permanente descarta un mensaje, el ítem crudo debería quedar
-`status = FAILED` y emitirse `note.failed` (§6.4). Hoy solo se registra y se confirma.
+Cuando un error permanente descarta un mensaje, el ítem crudo queda `status = FAILED`, se emite
+`note.failed` y se cuenta `notes_dropped` (§8.2.1): un mensaje descartado deja rastro en tres sitios,
+no solo en un log.
 
 ## 8. Observabilidad y alarmas (CloudWatch → SNS → correo)
 
@@ -259,9 +284,9 @@ sin su causa no dice nada.
 |---|---|---|
 | `DLQNotEmpty` (×2 colas) | `ApproximateNumberOfMessagesVisible` | `> 0` en 1 periodo de 5 min |
 | `QueueBacklogStale` (×2 colas) | `ApproximateAgeOfOldestMessage` | `> 900 s` |
-| `LambdaErrors` (×4: `ingest`, `outbox`, `processor`, `notifier`) | `Errors` | `≥ 1` en 5 min (`≥ 3` en `production`) |
-| `LambdaThrottles` (×4) | `Throttles` | `≥ 1` |
-| `LambdaDurationP95` (×4) | `Duration` p95 | `> 80 %` del timeout, 2 periodos |
+| `LambdaErrors` (×6: `ingest`, `outbox`, `processor`, `notifier`, `evaluator`, `digest`) | `Errors` | `≥ 1` en 5 min (`≥ 3` en `production`) |
+| `LambdaThrottles` (×6) | `Throttles` | `≥ 1` |
+| `LambdaDurationP95` (×6) | `Duration` p95 | `> 80 %` del timeout, 2 periodos |
 | `ApiGateway5XX` | `5xx` | `≥ 1` en 5 min |
 | `ApiGatewayLatencyP99` | `Latency` p99 | `> 3000 ms` |
 | `DynamoThrottled` | `ThrottledRequests` | `≥ 1` |
@@ -274,6 +299,8 @@ sin su causa no dice nada.
 | `NoNotesIngested` | Cero mensajes recibidos en 24 h en `production` → webhook probablemente roto. |
 | `AlarmsNotDelivered` | `alarms_failed / alarms_attempted > 10 %` en 1 h. |
 | `LowModelConfidence` | Media de `confidence` < 0.5 en 1 h → prompt o modelo degradado. |
+| `RemindersSwept` | El barrido tuvo que rescatar recordatorios → el Scheduler está fallando. |
+| `DigestNotRunning` | Sin `digest_runs` en 24 h → el cron del resumen dejó de ejecutarse. |
 
 ### 8.2.1 El punto ciego, cerrado
 
@@ -294,13 +321,15 @@ avisar al usuario de que su nota no se pudo procesar.
 
 - Log JSON estructurado con `correlationId`, `messageId`, `userPhoneHash`, `stage`, `component`.
 - Métricas de negocio por **EMF** en el namespace `WhatsAppWatcher`, con dimensiones `stage` y
-  `service`: `notes_ingested`, `notes_processed`, `model_latency_ms`, `model_errors`,
-  `model_confidence`, `alarms_attempted`, `alarms_sent`, `alarms_failed`. EMF significa que la
-  métrica sale del propio log: no hay `PutMetricData` que pueda fallar en el camino crítico.
+  `service`: `notes_ingested`, `notes_processed`, `notes_dropped`, `model_latency_ms`, `model_errors`,
+  `model_confidence`, `alarms_attempted`, `alarms_sent`, `alarms_failed`, `reminders_swept`,
+  `reminders_expired`, `digest_runs`, `digest_sent`, `digest_notes`. EMF significa que la métrica sale
+  del propio log: no hay `PutMetricData` que pueda fallar en el camino crítico.
 - Un **dashboard** por stage (`whatsapp-watcher-<stage>`), definido como código en
   `infra/monitoring.ts`: webhook y su latencia, notas entrantes y procesadas, profundidad de las
   cuatro colas con la antigüedad del mensaje más viejo, notas descartadas, latencia y calidad del
-  modelo, avisos al usuario, errores por lambda, y un widget con el estado de las 23 alarmas.
+  modelo, recordatorios enviados, resumen diario, errores por lambda, y un widget con el estado de las
+  31 alarmas (32 en `production`, que añade `NoNotesIngested`).
   Las alarmas dicen si algo está roto; el dashboard dice qué está haciendo el sistema.
 - Retención de logs: 14 días en `dev`, 90 días en `production`.
 
@@ -329,9 +358,9 @@ avisar al usuario de que su nota no se pudo procesar.
 
 ## 11. Criterios de aceptación
 
-1. Mandando "recuérdame X mañana a las 9" por WhatsApp llega la confirmación, y al día siguiente a las 9 llega
-   la alarma.
-2. Mandando una **nota de voz**, la nota queda guardada con transcripción y resumen generados por Bedrock.
+1. Mandando "recuérdame X mañana a las 9" por WhatsApp **no llega nada en el momento**, y al día siguiente a
+   las 9 llega el recordatorio.
+2. Mandando una **nota de voz**, la nota queda guardada con transcripción y resumen generados por el modelo.
 3. Mandando una **imagen**, la nota queda guardada con la descripción/extracción de texto.
 4. Reenviar el **mismo** `messageId` dos veces produce **una sola** nota (idempotencia demostrable).
 5. Forzando un fallo en `processor` (feature flag o payload envenenado), el mensaje acaba en la **DLQ** tras 3
@@ -342,11 +371,13 @@ avisar al usuario de que su nota no se pudo procesar.
 9. Un *redrive* ejecutado 24 h después sigue encontrando el media en S3 y produce la nota completa, aunque la
    URL original de KAPSO ya haya caducado.
 10. `sst deploy` levanta el stack completo desde cero en una cuenta limpia, sin pasos manuales salvo confirmar
-    la suscripción de correo del SNS.
+    las suscripciones de correo de los dos topics SNS.
+11. Veinticuatro horas después de anotar, llega un correo con el resumen del día: las notas capturadas y los
+    recordatorios que vencen mañana. Un día sin notas ni recordatorios no genera correo.
 
 ## 12. Entregables
 
-- Repositorio `whatsapp-watcher` con `sst.config.ts`, el código de las 4 Lambdas y tests con Bun.
+- Repositorio `whatsapp-watcher` con `sst.config.ts`, el código de las 6 Lambdas y tests con Bun.
 - Este enunciado y un `README.md` con diagrama, instrucciones de despliegue y de prueba.
 - Dashboard de CloudWatch definido como código.
 - Colección de payloads de ejemplo (texto, imagen, audio, duplicado, envenenado) para pruebas manuales.
@@ -359,11 +390,12 @@ avisar al usuario de que su nota no se pudo procesar.
 | 1 | ~~**Audio → texto**~~ **RESUELTO** | En Bedrock ningún Claude acepta `AUDIO`, así que habría hecho falta Amazon Transcribe. | Se resolvió **cambiando de proveedor**: OpenAI transcribe con la misma API key (`transcribe` del AI SDK), sin un servicio más ni otro paso en el pipeline. |
 | 2 | **API Gateway vs Function URL** | JohoFit usa Function URL; aquí se pide API Gateway. | API Gateway HTTP API: aporta throttling, access logs y métricas que las alarmas necesitan. |
 | 3 | **EventBridge Scheduler vs barrido** | Scheduler one-time es exacto pero crea un recurso por recordatorio (límites de cuenta). | Scheduler como mecanismo principal + barrido cada 5 min como red de seguridad. |
-| 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado. La confirmación siempre cabe; el recordatorio del día siguiente, no. | **Resuelto en código**: ante el 131047 el emisor reintenta el mismo recordatorio como template con una variable de cuerpo. Queda inactivo hasta que `KapsoReminderTemplate` apunte a un template aprobado en KAPSO. |
-| 5 | **Coste de Bedrock** | Cada nota = 1 invocación. | Cachear por hash de contenido, limitar tamaño de media y poner alarma de presupuesto. |
+| 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado, y **todo** lo que sale es ahora un recordatorio del día siguiente: el problema pasó de ser un caso raro a ser el caso normal. | **Resuelto en código**: ante el 131047 el emisor reintenta el mismo recordatorio como template con una variable de cuerpo. Queda inactivo hasta que `KapsoReminderTemplate` apunte a un template aprobado en KAPSO. |
+| 5 | **Coste del modelo** | Cada nota = 1 invocación. | Cachear por hash de contenido, limitar tamaño de media y poner alarma de presupuesto. |
 | 6 | **Identidad de usuario** | v1 identifica por número de teléfono. | Suficiente para v1; Clerk entra cuando exista panel web. |
 | 7 | **Media grande en el webhook** | Descargar en `ingest` añade latencia y puede topar con el límite de la ventana del webhook. | Timeout y memoria holgados en `ingest`, tope de tamaño configurable y rechazo explícito por encima de él; medir `ingest_media_ms` como métrica propia. |
-| 8 | **Región** | Debe tener Bedrock y el modelo elegido disponibles. | Fijar la región en `sst.config.ts` y documentarla. |
+| 8 | **Región** | Debe tener disponibles todos los servicios usados. | Fijar la región en `sst.config.ts` y documentarla. |
+| 9 | **Hora del resumen** | Fija a las 08:00 `America/Lima` para todo el stage; con usuarios en otra zona, el "día" no coincide con el suyo. | Aceptado en v1 (usuario único). El día se calcula en `America/Lima`, no en UTC, para que el corte caiga de madrugada y no parta una tarde en dos. |
 
 ## 14. Glosario
 

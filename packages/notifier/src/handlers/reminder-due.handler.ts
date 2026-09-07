@@ -7,9 +7,9 @@ import {
   type Logger,
 } from "@watcher/core";
 import type { SQSBatchResponse, SQSEvent, SQSRecord } from "aws-lambda";
-import type { NotifyNoteService } from "../services/notify-note.service.js";
+import type { NotifyReminderService } from "../services/notify-reminder.service.js";
 
-export function makeNoteProcessedHandler(service: NotifyNoteService, logger: Logger) {
+export function makeReminderDueHandler(service: NotifyReminderService, logger: Logger) {
   return async (event: SQSEvent): Promise<SQSBatchResponse> => {
     const batchItemFailures: { itemIdentifier: string }[] = [];
 
@@ -29,25 +29,28 @@ export function makeNoteProcessedHandler(service: NotifyNoteService, logger: Log
 
 async function handleRecord(
   record: SQSRecord,
-  service: NotifyNoteService,
+  service: NotifyReminderService,
   logger: Logger,
 ): Promise<void> {
   const parsed = DispatchEnvelopeSchema.safeParse(JSON.parse(record.body));
 
   if (!parsed.success) {
-    logger.error("note_event_unreadable", { sqsMessageId: record.messageId });
+    logger.error("reminder_event_unreadable", { sqsMessageId: record.messageId });
 
-    throw new PermanentError("note_event_unreadable", "The queued event does not match the contract");
+    throw new PermanentError(
+      "reminder_event_unreadable",
+      "The queued event does not match the contract",
+    );
   }
 
   const envelope = parsed.data;
-  const note = envelope.detail;
+  const reminder = envelope.detail;
 
   await runWithLogContext(
     {
-      correlationId: note.correlationId,
-      conversationId: note.conversationId,
-      messageId: note.messageId,
+      correlationId: reminder.correlationId,
+      conversationId: reminder.conversationId,
+      messageId: reminder.messageId,
     },
     async () => {
       try {

@@ -19,9 +19,8 @@ export const alarmDispatchQueue = new sst.aws.Queue("AlarmDispatchQueue", {
   dlq: { queue: alarmDispatchDlq.arn, retry: 3 },
 });
 
-bus.subscribeQueue("NoteProcessed", alarmDispatchQueue, {
-  pattern: { source: ["watcher.processor"], detailType: ["note.processed"] },
-});
+// No bus rule feeds this queue: its only producers are EventBridge Scheduler when a reminder
+// comes due and the evaluator when the scheduler did not deliver.
 
 /** EventBridge Scheduler needs its own identity to drop the reminder on the queue. */
 export const schedulerRole = new aws.iam.Role("ReminderSchedulerRole", {

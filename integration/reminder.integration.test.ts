@@ -55,18 +55,20 @@ describe("reminder against dev", () => {
       const lines = await waitForLogs(
         Resource.NotifierFunction.name,
         id,
-        (found) => found.some((line) => line.isReminder === true),
+        (found) => hasEvent(found, "recipient_not_allowed"),
         300_000,
       );
 
       // The synthetic number is not on the allowlist, so the reminder arrives at the notifier
       // and is stopped there. That block is criterion 8, and it is what we can assert without
       // messaging a real phone: the scheduler fired and the fail-closed rule held.
-      const reminderLine = lines.find((line) => line.isReminder === true);
+      const blocked = lines.find((line) => line.event === "recipient_not_allowed");
 
-      expect(reminderLine?.event).toBe("recipient_not_allowed");
-      // The confirmation travelled the same queue to the same consumer.
-      expect(lines.some((line) => line.isReminder === false)).toBe(true);
+      expect(blocked?.alarmId).toBe(id);
+
+      // The reminder is the only thing the notifier ever saw about this note: capturing it
+      // produced no message of its own.
+      expect(lines.filter((line) => line.alarmId === id)).toHaveLength(1);
 
       const afterwards = await itemsWithPrefix("ALARM#");
 
@@ -77,19 +79,29 @@ describe("reminder against dev", () => {
   );
 
   it(
-    "keeps the trace of the ingest across the scheduler",
+    "stays silent for a note with no hour, and keeps the trace all the way to the processor",
     async () => {
-      const id = newMessageId("trace");
+      const id = newMessageId("silent");
       created.push(id);
       const correlationId = `itest-${Date.now()}`;
 
       await sendWebhook(id, { text: "comprar café", correlationId });
 
-      const lines = await waitForLogs(Resource.NotifierFunction.name, correlationId, (found) =>
-        hasEvent(found, "note_notified"),
+      const lines = await waitForLogs(Resource.ProcessorFunction.name, correlationId, (found) =>
+        hasEvent(found, "note_processed"),
       );
 
+      expect(hasEvent(lines, "note_processed")).toBe(true);
       expect(lines.every((line) => line.correlationId === correlationId)).toBe(true);
+
+      const note = await waitForItem(`NOTE#${id}`);
+
+      expect(note?.dueAtEpoch).toBeUndefined();
+
+      // No reminder means nothing to notify: no schedule, and nothing on the way to WhatsApp.
+      const reminders = await itemsWithPrefix("ALARM#");
+
+      expect(reminders.find((item) => item.messageId === id)).toBeUndefined();
     },
     180_000,
   );

@@ -33,6 +33,7 @@ export default $config({
     const { processor } = await import("./infra/processor");
     const { notifier } = await import("./infra/notifier");
     const { evaluator } = await import("./infra/evaluator");
+    const { dailyDigest, digest } = await import("./infra/digest");
     const { dashboard, opsAlerts } = await import("./infra/monitoring");
 
     return {
@@ -43,7 +44,9 @@ export default $config({
       processorFunction: processor.name,
       notifierFunction: notifier.name,
       evaluatorFunction: evaluator.name,
+      digestFunction: digest.name,
       opsAlerts: opsAlerts.arn,
+      dailyDigest: dailyDigest.arn,
       dashboard: dashboard.dashboardName,
       bus: bus.name,
       queue: noteProcessingQueue.url,

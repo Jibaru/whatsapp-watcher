@@ -39,7 +39,7 @@ const service = new ProcessNoteService(
     logger,
     metrics,
   ),
-  new DynamoNoteRepository(documentClient, config.tableName, logger),
+  new DynamoNoteRepository(documentClient, config.tableName, logger, config.defaultTimezone),
   new EventBridgeNoteEventPublisher(new EventBridgeClient({}), config.eventBusName, logger),
   new DynamoFailedMessageRepository(documentClient, config.tableName, logger),
   new DynamoReminderRepository(documentClient, config.tableName, logger),

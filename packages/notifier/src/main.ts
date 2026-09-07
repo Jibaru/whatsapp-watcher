@@ -2,10 +2,10 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { EmfMetrics, JsonLogger } from "@watcher/core";
 import { loadNotifierConfig } from "./config.js";
-import { makeNoteProcessedHandler } from "./handlers/note-processed.handler.js";
+import { makeReminderDueHandler } from "./handlers/reminder-due.handler.js";
 import { KapsoWhatsAppSender } from "./repositories/kapso-whatsapp.sender.js";
 import { DynamoReminderRepository } from "./repositories/reminder.repository.js";
-import { NotifyNoteService } from "./services/notify-note.service.js";
+import { NotifyReminderService } from "./services/notify-reminder.service.js";
 
 const config = loadNotifierConfig();
 const logger = new JsonLogger({ service: "notifier", stage: config.stage });
@@ -28,9 +28,9 @@ const sender = new KapsoWhatsAppSender(
 const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const reminders = new DynamoReminderRepository(documentClient, config.tableName, logger);
 
-const service = new NotifyNoteService(sender, reminders, logger, metrics, {
+const service = new NotifyReminderService(sender, reminders, logger, metrics, {
   isProduction: config.isProduction,
   allowedRecipients: config.allowedRecipients,
 });
 
-export const handler = makeNoteProcessedHandler(service, logger);
+export const handler = makeReminderDueHandler(service, logger);

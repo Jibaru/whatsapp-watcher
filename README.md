@@ -1,18 +1,23 @@
 # WhatsApp Watcher
 
 A WhatsApp notetaker. You send a message to a WhatsApp number — text, a photo or a voice note —
-and it comes back as a structured note with a reminder you get on the same thread.
+and it is filed as a structured note. Writing one gets no answer: you hear back at the hour you
+asked for, and once a day by email with everything that was captured.
 
 Notes, their raw events and their media are kept forever. Nothing expires.
 
 ```
 Usuario ──▶ KAPSO ──▶ API Gateway ──▶ ingest ──▶ S3 (media)
                                           └────▶ DynamoDB
-                                                    │ stream
-                                                    ▼
+                                                    │ stream         ▲
+                                                    ▼                │
                                                  outbox ──▶ EventBridge ──▶ SQS ──▶ processor ──▶ OpenAI
                                                                                         │
-                                          notifier ◀── SQS ◀── EventBridge ◀────────────┘
+                                                            EventBridge Scheduler ◀─────┘ (only if it has an hour)
+                                                                     │
+                                          Usuario ◀── KAPSO ◀── notifier ◀── SQS
+                                                                                                   
+                            cron 24 h ──▶ digest ──▶ DynamoDB ──▶ SNS ──▶ correo
 ```
 
 Full design in [`docs/ENUNCIADO.md`](docs/ENUNCIADO.md) (Spanish). Interactive diagrams:
@@ -26,10 +31,14 @@ Full design in [`docs/ENUNCIADO.md`](docs/ENUNCIADO.md) (Spanish). Interactive d
 2. **outbox** reads the DynamoDB stream and publishes `note.received`. Deriving the event from
    committed state is what makes it impossible to store a note and never announce it.
 3. **processor** reads the item, pulls the media from S3, transcribes audio and extracts the note
-   through OpenAI, writes it and publishes `note.processed`.
-4. **notifier** answers on the same WhatsApp thread, both the confirmation and, later, the reminder
-   that EventBridge Scheduler drops on the same queue. Outside production it only writes to numbers on
-   an allowlist; an empty allowlist sends to nobody.
+   through OpenAI, and writes it. If the note asked for an hour it also schedules the reminder.
+   If it did not, nothing else happens: that is the whole point.
+4. **notifier** sends the reminder on the same WhatsApp thread when EventBridge Scheduler drops it on
+   the queue. Outside production it only writes to numbers on an allowlist; an empty allowlist sends
+   to nobody.
+5. **digest** runs once every 24 hours, asks DynamoDB what was written and what is due next, and
+   emails the summary through SNS. On a day with nothing to report it sends nothing, and says so
+   through a metric instead.
 
 Every step is at-least-once, so every consumer is idempotent and errors are classified as retryable
 or not: a transient one goes back to the queue and ends in a DLQ, a permanent one is acknowledged
@@ -46,6 +55,7 @@ packages/outbox/     DynamoDB stream to EventBridge
 packages/processor/  OpenAI analysis
 packages/notifier/   WhatsApp delivery
 packages/evaluator/  five minute sweep for reminders the scheduler missed
+packages/digest/     daily summary by email
 infra/               one file per lambda, imported from sst.config.ts
 integration/         tests against the deployed dev stage, one file per behaviour
 docs/                design document and diagrams
@@ -96,6 +106,8 @@ bun run webhook:test <url> <secret>
 | `DEFAULT_TIMEZONE` | `America/Lima` | Resolves "tomorrow at ten" into an instant. |
 | `MEDIA_MAX_BYTES` | 16 MiB | Larger media is dropped and the note kept. |
 | `ALLOWED_RECIPIENTS` | empty | Comma separated. Outside production, nothing is sent to anyone else. |
+| `DIGEST_WINDOW_HOURS` | 24 | How far back the daily summary looks. |
+| `DIGEST_LOOKAHEAD_HOURS` | 24 | How far ahead it lists what is still due. |
 
 ## Watching it
 
@@ -103,15 +115,21 @@ bun run webhook:test <url> <secret>
 last widget lists every alarm. That widget is worth knowing about: an alarm reads OK both when it is
 healthy and when it has never seen a datapoint, and side by side the difference is obvious.
 
+Two SNS topics carry email, both subscribed to the addresses in `OpsEmails`: `ops-alerts` for the
+alarms and `daily-digest` for the summary. Each address confirms each subscription separately, which
+is what lets someone drop the summary without losing the alarms.
+
 ## Known gaps
 
 - A reminder that fires more than 24 hours after the user last wrote needs an approved template.
   The code path is there and tested: on Meta's code 131047 the sender retries the same reminder as
   a template with a single body variable. It stays inactive until `KapsoReminderTemplate` names an
   approved template, so today a next-day reminder still fails.
-- Rule based alarms (silence for N days, a daily digest of overdue notes) are not built. Evaluating
-  rules before there is any way to create one would be a machine with no input; the sweep that the
-  evaluator does today needs no rules.
+- Rule based alarms (silence for N days, urgency) are not built. Evaluating rules before there is any
+  way to create one would be a machine with no input. The one rule worth having, the periodic
+  summary, is the `digest` lambda and needs no rules to exist.
+- The digest goes to the ops addresses, not to the user's WhatsApp, and its hour is the same for the
+  whole stage. Both are fine for one user and would not be for many.
 - Replies always go to the full international number. A national one lets WhatsApp fill in the
   country of the sending account, which once delivered a note to a stranger in another country, so
   the sandbox test number must be registered with its country code.

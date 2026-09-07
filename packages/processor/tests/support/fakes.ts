@@ -14,7 +14,6 @@ import type {
 import type {
   NoteEventPublisher,
   PublishNoteFailedCommand,
-  PublishNoteProcessedCommand,
 } from "../../src/repositories/note-event.publisher.js";
 import type { FailedMessageRepository } from "../../src/repositories/failed-message.repository.js";
 import type { NoteRepository } from "../../src/repositories/note.repository.js";
@@ -94,12 +93,7 @@ export class FakeNoteRepository implements NoteRepository {
 }
 
 export class FakeNotePublisher implements NoteEventPublisher {
-  readonly published: PublishNoteProcessedCommand[] = [];
   readonly failures: PublishNoteFailedCommand[] = [];
-
-  async publishNoteProcessed(command: PublishNoteProcessedCommand): Promise<void> {
-    this.published.push(command);
-  }
 
   async publishNoteFailed(command: PublishNoteFailedCommand): Promise<void> {
     this.failures.push(command);
