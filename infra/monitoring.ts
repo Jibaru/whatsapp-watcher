@@ -11,15 +11,29 @@ import { outbox } from "./outbox";
 import { processor } from "./processor";
 import { table } from "./storage";
 
-export const opsEmail = new sst.Secret("OpsEmail");
+/** Comma separated. One topic, one subscription per address: that is the fan-out. */
+export const opsEmails = new sst.Secret("OpsEmails");
 
 export const opsAlerts = new sst.aws.SnsTopic("OpsAlerts");
 
-// SST only subscribes lambdas, and this has to reach a person.
-new aws.sns.TopicSubscription("OpsAlertsEmail", {
-  topic: opsAlerts.arn,
-  protocol: "email",
-  endpoint: opsEmail.value,
+// SST only subscribes lambdas, and these have to reach people. The list arrives as an Output,
+// so the subscriptions are created inside apply: they do not show up in preview, only on deploy.
+opsEmails.value.apply((raw) => {
+  const addresses = raw
+    .split(",")
+    .map((address) => address.trim())
+    .filter((address) => address !== "");
+
+  for (const address of addresses) {
+    // Named after the address so adding or removing one does not churn the others.
+    const slug = address.replace(/[^a-zA-Z0-9]/g, "-");
+
+    new aws.sns.TopicSubscription(`OpsAlertsEmail-${slug}`, {
+      topic: opsAlerts.arn,
+      protocol: "email",
+      endpoint: address,
+    });
+  }
 });
 
 const isProduction = $app.stage === "production";

@@ -114,7 +114,7 @@ flowchart LR
 | 12 | **Lambda `notifier`** | Enviar el mensaje por KAPSO (template o free-form según la ventana de 24 h) y marcar la alarma como enviada. | **Fail-closed**: en `dev` solo destinatarios de la allowlist. |
 | 13 | **CloudWatch** | Logs JSON estructurados, métricas EMF de negocio, dashboard único del pipeline. | `correlationId = messageId` en todos los logs. |
 | 14 | **CloudWatch Alarms** | Detectar fallo técnico y de negocio (§8). | Todas apuntan al topic SNS. |
-| 15 | **SNS `ops-alerts`** | Fan-out de alarmas a correo (suscripción email confirmada). | Un topic por stage. |
+| 15 | **SNS `ops-alerts`** | Fan-out real: un topic y **una suscripción por dirección**, en `OpsEmails` (separadas por comas). Añadir a alguien de guardia no toca el código de las alarmas. | Un topic por stage. Cada dirección debe confirmar su suscripción por correo antes de recibir nada. |
 | 16 | **KAPSO** | Inbound (webhook) y outbound (envío de la alarma). | Secret compartido + allowlist en `dev`. |
 
 ## 6. Flujos funcionales

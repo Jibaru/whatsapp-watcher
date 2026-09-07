@@ -42,7 +42,7 @@
           "sns",
           "correo"
         ],
-        "note": "Ambas DLQ y las métricas de las lambdas convergen en la misma alarma y el mismo correo."
+        "note": "Un solo topic y una suscripción por dirección: añadir a alguien de guardia no toca el código de las alarmas."
       }
     ]
   },
@@ -150,7 +150,7 @@
       "id": "sns",
       "type": "messagebus",
       "label": "SNS",
-      "sublabel": "ops-alerts",
+      "sublabel": "ops-alerts · fan-out",
       "pos": [
         950,
         225
@@ -163,8 +163,8 @@
     {
       "id": "correo",
       "type": "external",
-      "label": "Operador",
-      "sublabel": "correo on-call",
+      "label": "Operadores",
+      "sublabel": "suscripciones por correo",
       "pos": [
         1175,
         225
@@ -172,7 +172,8 @@
       "size": [
         150,
         60
-      ]
+      ],
+      "tag": "una por dirección"
     },
     {
       "id": "dispatch-dlq",
@@ -274,7 +275,7 @@
       "id": "correo-ops",
       "from": "sns",
       "to": "correo",
-      "label": "email",
+      "label": "email ×N",
       "variant": "security"
     }
   ],
@@ -302,7 +303,7 @@
       "title": "Observabilidad",
       "items": [
         "Las dos DLQ tienen la misma alarma de profundidad",
-        "Alarmas técnicas y de negocio caen en el mismo topic de SNS",
+        "Un topic de SNS reparte cada alarma a todas las direcciones suscritas",
         "correlationId común en todas las lambdas para seguir una nota"
       ]
     }

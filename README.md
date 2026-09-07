@@ -69,6 +69,7 @@ bun run secret:openai      # OpenAI API key
 bun run secret:kapso-api   # KAPSO API key, from Project Settings > API Keys
 bun run secret:phone-id    # the phone_number_id the webhook payload carries
 bun run allowlist:set      # your own number in E.164 while testing
+bun run ops-emails:set     # comma separated addresses for the alarms
 bun run deploy             # sst deploy --stage dev
 bun run test:integration   # runs against the deployed stage
 ```
