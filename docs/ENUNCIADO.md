@@ -235,7 +235,10 @@ media son el histórico del usuario y se conservan. Dos consecuencias:
 
 ## 9. Seguridad
 
-- Secret del webhook de KAPSO en SST Secret / Parameter Store; verificación **antes** de parsear el body.
+- Webhook de KAPSO: firma **HMAC-SHA256 en hex sobre el cuerpo crudo**, en la cabecera
+  `X-Webhook-Signature`. El secreto lo genera KAPSO al registrar el webhook en su dashboard y se guarda
+  como SST Secret. Se verifica **antes** de parsear el body y en tiempo constante; hay que firmar los
+  bytes tal cual llegan, porque reserializar el JSON cambia la firma.
 - **Fail-closed por stage**: si `APP_STAGE !== 'production'`, solo se envía a números de `ALLOWED_RECIPIENTS`;
   si la variable falta, no se envía nada.
 - S3 privado, sin acceso público; media servido solo por presigned URL de corta vida.
