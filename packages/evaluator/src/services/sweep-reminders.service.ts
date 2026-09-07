@@ -5,6 +5,7 @@ import type { DueReminderRepository } from "../repositories/due-reminder.reposit
 export interface SweepRemindersOutput {
   readonly swept: number;
   readonly expired: number;
+  readonly stale: number;
 }
 
 export interface SweepRemindersOptions {
@@ -42,8 +43,17 @@ export class SweepRemindersService {
 
     let swept = 0;
     let expired = 0;
+    let stale = 0;
 
     for (const reminder of due) {
+      if (reminder.status !== "PENDING") {
+        // The index said it was owed and the item says it is not. The item wins: take it out
+        // rather than re-enqueue it every five minutes until the give up window closes.
+        await this.reminders.unindex(reminder.pk, reminder.sk);
+        stale += 1;
+        continue;
+      }
+
       if (nowEpoch - reminder.dueAtEpoch > this.options.giveUpSeconds) {
         // Ringing hours late is worse than not ringing, and it would come back every sweep.
         await this.reminders.expire(reminder.pk, reminder.sk);
@@ -73,6 +83,11 @@ export class SweepRemindersService {
       this.logger.warn("reminder_sweep_found_work", { swept, expired, candidates: due.length });
     }
 
-    return { swept, expired };
+    if (stale > 0) {
+      // Not counted as swept: nothing was rescued, an inconsistency was cleaned up.
+      this.logger.warn("reminder_index_stale", { stale });
+    }
+
+    return { swept, expired, stale };
   }
 }

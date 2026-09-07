@@ -162,8 +162,9 @@ un único tipo de mensaje, `alarm.due`, y la vacía un único consumidor:
 2. Llega la hora → el Scheduler pone `alarm.due` en `alarm-dispatch`. Si el schedule nunca se creó o su
    entrega se perdió, el `evaluator` lo rescata en su barrido y encola el mismo sobre.
 3. `notifier` lee el mensaje, comprueba que el recordatorio sigue `PENDING` (idempotencia) y envía por KAPSO.
-4. Marca `SENT` con `sentAtEpoch`. Si KAPSO devuelve error transitorio → excepción → reintento SQS → **DLQ de
-   salida**, con su propia alarma en CloudWatch.
+4. Marca `SENT` con `sentAtEpoch` y lo saca de `AlarmDueIndex` en la misma escritura (§7). Si KAPSO
+   devuelve error transitorio → excepción → reintento SQS → **DLQ de salida**, con su propia alarma en
+   CloudWatch.
 
 La cola existe justo para esto: sin ella, un fallo de KAPSO al enviar se perdería en el aire.
 
@@ -252,7 +253,18 @@ media son el histórico del usuario y se conservan. Dos consecuencias:
 
 - `AlarmDueIndex` — `gsi1pk = ALARM#<status>`, `gsi1sk = <dueAtEpoch>` → barrido de vencidos y agenda de
   mañana. **Creado**. Solo los recordatorios `PENDING` llevan estos atributos: al enviarse o expirar se
-  quitan, así que el índice contiene únicamente lo que queda por hacer y nadie paga por leer el histórico.
+  quitan **en la misma escritura que cambia el estado**, así que el índice contiene únicamente lo que
+  queda por hacer y nadie paga por leer el histórico.
+
+  Esa invariante se rompió en producción de `dev` y costó verla: `markSent` cambiaba el estado pero no
+  quitaba los atributos, así que el barrido reencolaba un recordatorio ya enviado cada 5 min. El envío
+  duplicado lo paraba la comprobación de idempotencia del `notifier`, pero `reminders_swept` subía sin
+  parar y la alarma `RemindersSwept` gritaba por algo que no era. De ahí dos reglas:
+
+  - El que saca un recordatorio de `PENDING` lo saca del índice, en el mismo `UpdateExpression`.
+  - **El ítem manda sobre el índice**: si el barrido encuentra algo indexado cuyo `status` ya no es
+    `PENDING`, lo desindexa y no lo cuenta como rescatado. Un índice inconsistente y un Scheduler
+    averiado son problemas distintos y no pueden disparar la misma alarma.
 - `NoteDigestIndex` — `gsi2pk = NOTE#<yyyy-mm-dd>` (el día en `America/Lima`), `gsi2sk = <createdAtEpoch>`
   → las notas de un día. **Creado**. La partición es el día y no una constante: un único `NOTE#` acumularía
   el histórico entero en una partición caliente, mientras que una ventana de 24 h toca como mucho dos días.
@@ -359,8 +371,11 @@ avisar al usuario de que su nota no se pudo procesar.
 ## 11. Criterios de aceptación
 
 1. Mandando "recuérdame X mañana a las 9" por WhatsApp **no llega nada en el momento**, y al día siguiente a
-   las 9 llega el recordatorio.
+   las 9 llega el recordatorio. **Verificado en `dev`** con una nota de voz: nada al anotar, y el
+   recordatorio en el móvil a la hora pedida.
 2. Mandando una **nota de voz**, la nota queda guardada con transcripción y resumen generados por el modelo.
+   **Verificado en `dev`**: `.ogg` en S3, `transcribed: true`, nota estructurada con `dueAt` resuelto a
+   partir de "hoy a las 3:15".
 3. Mandando una **imagen**, la nota queda guardada con la descripción/extracción de texto.
 4. Reenviar el **mismo** `messageId` dos veces produce **una sola** nota (idempotencia demostrable).
 5. Forzando un fallo en `processor` (feature flag o payload envenenado), el mensaje acaba en la **DLQ** tras 3

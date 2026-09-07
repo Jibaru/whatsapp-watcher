@@ -22,13 +22,18 @@ export class DynamoReminderRepository implements ReminderRepository {
     return Item?.status === "PENDING";
   }
 
+  /**
+   * The REMOVE is not cosmetic: AlarmDueIndex only holds what is still owed, and the sweep
+   * trusts that. A sent reminder left in it comes back on every sweep forever, because expire()
+   * will not touch something that is no longer PENDING.
+   */
   async markSent(pk: string, sk: string): Promise<void> {
     try {
       await this.client.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: { pk, sk },
-          UpdateExpression: "SET #status = :sent, sentAtEpoch = :now",
+          UpdateExpression: "SET #status = :sent, sentAtEpoch = :now REMOVE gsi1pk, gsi1sk",
           ConditionExpression: "#status = :pending",
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: {

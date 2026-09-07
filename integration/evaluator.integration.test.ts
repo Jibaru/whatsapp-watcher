@@ -15,7 +15,7 @@ afterAll(async () => {
  * Plants a reminder the scheduler never knew about, which is exactly the state the sweep
  * exists for: a schedule that was never created, or one whose delivery was lost.
  */
-async function plantReminder(alarmId: string, dueSecondsAgo: number) {
+async function plantReminder(alarmId: string, dueSecondsAgo: number, status = "PENDING") {
   const dueAtEpoch = Math.floor(Date.now() / 1000) - dueSecondsAgo;
   const sk = `ALARM#${dueAtEpoch}#${alarmId}`;
   planted.push(sk);
@@ -31,7 +31,7 @@ async function plantReminder(alarmId: string, dueSecondsAgo: number) {
         noteId: `note-${alarmId}`,
         messageId: `wamid.${alarmId}`,
         title: "Recordatorio huérfano",
-        status: "PENDING",
+        status,
         dueAtEpoch,
         gsi1pk: "ALARM#PENDING",
         gsi1sk: dueAtEpoch,
@@ -53,6 +53,7 @@ async function runSweep() {
   return JSON.parse(new TextDecoder().decode(response.Payload)) as {
     swept: number;
     expired: number;
+    stale: number;
   };
 }
 
@@ -76,6 +77,7 @@ describe("evaluator against dev", () => {
 
       // The rescued one went to the queue; the notifier decides what happens to it.
       expect((await readItem(late))?.status).toBe("PENDING");
+      expect(result.stale).toBe(0);
     },
     120_000,
   );
@@ -96,6 +98,26 @@ describe("evaluator against dev", () => {
   );
 
   it(
+    "takes a reminder that is no longer pending out of the index instead of sweeping it forever",
+    async () => {
+      // The shape a sent reminder used to be left in: status SENT but still indexed. The
+      // conditional expire can never succeed on it, so without the unconditional REMOVE the
+      // sweep would rescue it every five minutes for the rest of the table's life.
+      const stale = await plantReminder(`stale-${Date.now()}`, 300, "SENT");
+
+      const result = await runSweep();
+      const after = await readItem(stale);
+
+      // Not swept: nothing was rescued. And not left for the give up window an hour away.
+      expect(result.stale).toBeGreaterThanOrEqual(1);
+      expect(after?.status).toBe("SENT");
+      expect(after?.gsi1pk).toBeUndefined();
+      expect(after?.gsi1sk).toBeUndefined();
+    },
+    120_000,
+  );
+
+  it(
     "finds nothing to do once the table is quiet",
     async () => {
       for (const sk of await itemsWithPrefix("ALARM#")) {
@@ -107,7 +129,7 @@ describe("evaluator against dev", () => {
         ).catch(() => undefined);
       }
 
-      expect(await runSweep()).toEqual({ swept: 0, expired: 0 });
+      expect(await runSweep()).toEqual({ swept: 0, expired: 0, stale: 0 });
     },
     120_000,
   );

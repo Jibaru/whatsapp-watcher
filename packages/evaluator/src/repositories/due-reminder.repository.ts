@@ -11,12 +11,15 @@ export interface DueReminder {
   readonly owner: string;
   readonly title: string;
   readonly dueAtEpoch: number;
+  /** What the item itself says. The index can disagree, and then the item wins. */
+  readonly status: string;
   readonly correlationId?: string;
 }
 
 export interface DueReminderRepository {
   findPendingBefore(epoch: number, limit: number): Promise<DueReminder[]>;
   expire(pk: string, sk: string): Promise<void>;
+  unindex(pk: string, sk: string): Promise<void>;
 }
 
 export class DynamoDueReminderRepository implements DueReminderRepository {
@@ -50,6 +53,7 @@ export class DynamoDueReminderRepository implements DueReminderRepository {
       owner: String(item.pk).replace(/^USER#/, ""),
       title: String(item.title ?? ""),
       dueAtEpoch: Number(item.dueAtEpoch),
+      status: String(item.status ?? ""),
       correlationId: typeof item.correlationId === "string" ? item.correlationId : undefined,
     }));
   }
@@ -73,6 +77,9 @@ export class DynamoDueReminderRepository implements DueReminderRepository {
       );
     } catch (error) {
       if (error instanceof ConditionalCheckFailedException) {
+        // It left PENDING by another path. Its state is not ours to change, but it must still
+        // leave the index, or the sweep keeps finding it every five minutes for good.
+        await this.unindex(pk, sk);
         this.logger.info("reminder_no_longer_pending", { pk, sk });
 
         return;
@@ -80,5 +87,16 @@ export class DynamoDueReminderRepository implements DueReminderRepository {
 
       throw error;
     }
+  }
+
+  /** Leaving the index is unconditional: whatever the item became, it is no longer owed. */
+  async unindex(pk: string, sk: string): Promise<void> {
+    await this.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { pk, sk },
+        UpdateExpression: "REMOVE gsi1pk, gsi1sk",
+      }),
+    );
   }
 }

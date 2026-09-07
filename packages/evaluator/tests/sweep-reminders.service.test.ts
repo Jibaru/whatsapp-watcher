@@ -20,12 +20,14 @@ function reminder(overrides: Partial<DueReminder> = {}): DueReminder {
     owner: "+51999000001",
     title: "Llamar al proveedor",
     dueAtEpoch: nowEpoch - 300,
+    status: "PENDING",
     ...overrides,
   };
 }
 
 class FakeReminders implements DueReminderRepository {
   readonly expired: string[] = [];
+  readonly unindexed: string[] = [];
   queriedBefore?: number;
 
   constructor(private readonly found: DueReminder[] = []) {}
@@ -38,6 +40,10 @@ class FakeReminders implements DueReminderRepository {
 
   async expire(pk: string, sk: string): Promise<void> {
     this.expired.push(`${pk}|${sk}`);
+  }
+
+  async unindex(pk: string, sk: string): Promise<void> {
+    this.unindexed.push(`${pk}|${sk}`);
   }
 }
 
@@ -69,7 +75,7 @@ describe("SweepRemindersService", () => {
   it("does nothing when no reminder is late", async () => {
     const { service, queue, lines } = build([]);
 
-    expect(await service.execute()).toEqual({ swept: 0, expired: 0 });
+    expect(await service.execute()).toEqual({ swept: 0, expired: 0, stale: 0 });
     expect(queue.enqueued).toHaveLength(0);
     expect(lines).toHaveLength(0);
   });
@@ -85,7 +91,7 @@ describe("SweepRemindersService", () => {
   it("re-enqueues a reminder the scheduler never delivered", async () => {
     const { service, queue } = build([reminder()]);
 
-    expect(await service.execute()).toEqual({ swept: 1, expired: 0 });
+    expect(await service.execute()).toEqual({ swept: 1, expired: 0, stale: 0 });
     expect(queue.enqueued[0]).toMatchObject({
       alarmId: "wamid.1",
       to: "+51999000001",
@@ -106,9 +112,31 @@ describe("SweepRemindersService", () => {
   it("expires a reminder too old to be worth ringing", async () => {
     const { service, queue, reminders } = build([reminder({ dueAtEpoch: nowEpoch - 7200 })]);
 
-    expect(await service.execute()).toEqual({ swept: 0, expired: 1 });
+    expect(await service.execute()).toEqual({ swept: 0, expired: 1, stale: 0 });
     expect(queue.enqueued).toHaveLength(0);
     expect(reminders.expired).toEqual(["USER#+51999000001|ALARM#1788800000#wamid.1"]);
+  });
+
+  it("unindexes a reminder the index still claims is pending", async () => {
+    const { service, queue, reminders, lines } = build([reminder({ status: "SENT" })]);
+
+    // Nothing was rescued here, so it must not count as swept: RemindersSwept means the
+    // scheduler is failing, and an inconsistent index is a different problem.
+    expect(await service.execute()).toEqual({ swept: 0, expired: 0, stale: 1 });
+    expect(queue.enqueued).toHaveLength(0);
+    expect(reminders.expired).toHaveLength(0);
+    expect(reminders.unindexed).toEqual(["USER#+51999000001|ALARM#1788800000#wamid.1"]);
+    expect(lines.some((line) => line.event === "reminder_index_stale")).toBe(true);
+  });
+
+  it("does not wait for the give up window to clean a stale one", async () => {
+    const { service, reminders } = build([
+      reminder({ status: "SENT", dueAtEpoch: nowEpoch - 60 }),
+    ]);
+
+    await service.execute();
+
+    expect(reminders.unindexed).toHaveLength(1);
   });
 
   it("handles a batch with both kinds", async () => {
@@ -117,7 +145,7 @@ describe("SweepRemindersService", () => {
       reminder({ alarmId: "ancient", sk: "ALARM#1#ancient", dueAtEpoch: nowEpoch - 90_000 }),
     ]);
 
-    expect(await service.execute()).toEqual({ swept: 1, expired: 1 });
+    expect(await service.execute()).toEqual({ swept: 1, expired: 1, stale: 0 });
     expect(queue.enqueued[0]?.alarmId).toBe("recent");
     expect(reminders.expired).toEqual(["USER#+51999000001|ALARM#1#ancient"]);
   });
