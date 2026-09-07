@@ -33,7 +33,7 @@
           "media",
           "dynamo"
         ],
-        "note": "El procesador guarda el media en S3, llama a Bedrock y persiste la nota estructurada."
+        "note": "El media se guarda al llegar; el procesador lo lee de S3, llama a Bedrock y persiste la nota."
       },
       {
         "id": "fallos",
@@ -373,9 +373,23 @@
     },
     {
       "id": "guarda-media",
-      "from": "processor",
+      "from": "ingest",
       "to": "media",
-      "label": "media original"
+      "label": "media original",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          575,
+          400
+        ]
+      ]
+    },
+    {
+      "id": "lee-media",
+      "from": "media",
+      "to": "processor",
+      "label": "lee media"
     },
     {
       "id": "infiere",
@@ -468,7 +482,7 @@
       "title": "Ingesta",
       "items": [
         "API Gateway verifica el secret antes de parsear el body",
-        "ingest responde en menos de 3 s y nunca llama a Bedrock",
+        "ingest guarda el media en S3 antes de encolar nada",
         "El mismo messageId dos veces produce una sola nota"
       ]
     },
@@ -477,7 +491,7 @@
       "title": "Proceso asíncrono",
       "items": [
         "EventBridge rutea y SQS absorbe picos y reintentos",
-        "processor sube el media a S3 y pide a Bedrock un JSON con schema",
+        "processor lee el media de S3 y pide a Bedrock un JSON con schema",
         "El recordatorio se programa con EventBridge Scheduler"
       ]
     },

@@ -71,7 +71,8 @@ flowchart LR
   EB -->|rule note.received| SQS[SQS note-processing]
   SQS -.->|maxReceiveCount 3| DLQ[SQS DLQ]
   SQS --> L2[Lambda processor]
-  L2 -->|media| S3[(S3 media)]
+  L1 -->|media original| S3[(S3 media)]
+  S3 -->|lee media| L2
   L2 -->|Converse| BR[Amazon Bedrock]
   L2 -->|nota estructurada| DDB
   L2 -->|schedule one-time| SCH[EventBridge Scheduler]
@@ -94,13 +95,13 @@ flowchart LR
 | # | Componente | Responsabilidad | Notas |
 |---|---|---|---|
 | 1 | **API Gateway (HTTP API)** | Único punto de entrada público. Rutas `POST /webhooks/kapso` y `GET /health`. | Throttling por ruta; access logs a CloudWatch. |
-| 2 | **Lambda `ingest`** | Verificar el secret/firma de KAPSO, validar payload con Zod, escribir el evento crudo en DynamoDB de forma **idempotente**, publicar en EventBridge y responder `200` en < 3 s. | No llama a Bedrock ni descarga media: la ingesta nunca debe bloquearse. |
+| 2 | **Lambda `ingest`** | Verificar el secret/firma de KAPSO, validar payload con Zod, **descargar el media y guardarlo en S3**, escribir el evento crudo en DynamoDB de forma **idempotente**, publicar en EventBridge y responder `200`. | Guarda el media porque la URL de KAPSO caduca; nunca llama a Bedrock. Presupuesto: < 5 s con media, < 1 s sin él. |
 | 3 | **DynamoDB `WatcherMain`** | Single-table: evento crudo, nota estructurada, recordatorio, regla de alarma, registro de idempotencia. | Stream `NEW_AND_OLD_IMAGES` + TTL en `expiresAtEpoch`. |
 | 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.processed`, `alarm.due`, `note.failed`. Además reglas `schedule` para el evaluador. | Permite añadir consumidores nuevos sin tocar el productor. |
 | 5 | **SQS `note-processing` (+ DLQ)** | Buffer y reintentos del trabajo pesado. | `maxReceiveCount = 3`; `visibilityTimeout ≥ 6×` el timeout de la Lambda. |
-| 6 | **Lambda `processor`** | Descargar media a S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
+| 6 | **Lambda `processor`** | Leer el media desde S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
 | 7 | **Amazon Bedrock** | Transcribir audio / describir imagen, clasificar y extraer campos estructurados (JSON con schema). | Por defecto `claude-sonnet-5` vía Converse API con *tool use* para forzar el schema. |
-| 8 | **S3 `watcher-media`** | Guardar el media original (privado, presigned URLs, cifrado SSE-S3). | Lifecycle: transición a IA a 30 días, expiración configurable. |
+| 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: IA a 30 días, expiración configurable. |
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
 | 10 | **Lambda `evaluator`** | Cada 5 min: evaluar reglas de alarma por estado/umbral y barrer recordatorios vencidos no enviados. | Idempotente por `alarmId#dueAtEpoch`. |
 | 11 | **SQS `alarm-dispatch` (+ DLQ)** | Cola de salida: garantiza que un envío fallido a KAPSO se reintenta. | Misma política de redrive. |
@@ -117,18 +118,23 @@ flowchart LR
 1. El usuario manda "recuérdame llamar al proveedor mañana a las 10" (o una foto, o un audio).
 2. KAPSO hace `POST` al webhook con el mensaje y, si hay media, una referencia/URL temporal.
 3. `ingest` valida el secret; si falla → `401` y métrica `webhook_unauthorized`.
-4. `ingest` escribe `RAW#<messageId>` con `ConditionExpression: attribute_not_exists(pk)`.
+4. Si el mensaje trae media, `ingest` lo descarga **antes de nada más** y lo sube a
+   `s3://watcher-media/<stage>/<messageId>` (la URL de KAPSO es temporal y caduca).
+5. `ingest` escribe `RAW#<messageId>` con `mediaKey` y `ConditionExpression: attribute_not_exists(pk)`.
    Si ya existe → **duplicado**: responde `200` sin re-emitir (KAPSO reintenta y no debe duplicar notas).
-5. `ingest` publica `note.received` en EventBridge y responde `200`.
-6. La regla enruta a `note-processing`; `processor` toma el mensaje.
-7. `processor`:
-   - descarga el media (si lo hay) y lo sube a S3;
+   El orden importa: primero S3, después la clave de idempotencia. Al revés, un reintento tras un fallo de
+   subida quedaría deduplicado y perdería el media; así, como mucho, queda un objeto huérfano que el lifecycle
+   se lleva.
+6. `ingest` publica `note.received` (con `mediaKey`, nunca los bytes) en EventBridge y responde `200`.
+7. La regla enruta a `note-processing`; `processor` toma el mensaje.
+8. `processor`:
+   - lee el media de S3 con la `mediaKey` del evento;
    - llama a Bedrock con el texto/imagen/audio y un schema de salida;
    - obtiene `{ tipo, título, resumen, etiquetas[], prioridad, dueAt?, timezone, confianza }`;
    - escribe `NOTE#<id>` con `status = PROCESSED`;
    - si hay `dueAt`, crea el recordatorio y su schedule en EventBridge Scheduler;
    - emite `note.processed`.
-8. `notifier` confirma al usuario: "Anotado ✅ — te aviso mañana 10:00".
+9. `notifier` confirma al usuario: "Anotado ✅ — te aviso mañana 10:00".
 
 ### 6.2 Flujo de alarma programada
 
@@ -153,12 +159,14 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 |---|---|
 | Payload inválido desde KAPSO | `ingest` responde `400`, log de error y métrica; no se encola nada. |
 | Firma/secret incorrecto | `401`; alarma si supera umbral (posible abuso). |
+| `ingest` no puede descargar o subir el media | Devuelve `5xx` sin escribir la clave de idempotencia → KAPSO reintenta el webhook entero y el media se recupera. |
 | `ingest` no puede escribir en DynamoDB | Devuelve `5xx` → KAPSO reintenta; alarma por `5XX` de API Gateway. |
 | Bedrock lanza throttling / timeout | El mensaje vuelve a la cola (backoff de SQS), hasta 3 intentos. |
 | Fallo permanente al procesar (media corrupto, respuesta no parseable) | Tras 3 intentos → **DLQ**; la nota queda `status = FAILED`; se emite `note.failed`. |
 | Mensaje en la DLQ | Alarma `DLQNotEmpty` → SNS → correo al operador con el `messageId`. |
 | KAPSO caído al enviar la alarma | Reintentos en `alarm-dispatch`, luego su DLQ; la alarma **no** se marca `SENT`. |
 | Lote SQS con un mensaje malo | `ReportBatchItemFailures`: solo ese mensaje se reintenta, el resto se confirma. |
+| Reproceso horas o días después | El media sigue en S3 aunque la URL de KAPSO haya caducado: el reproceso es siempre posible. |
 | Reproceso | El operador hace *redrive* de la DLQ a la cola principal; la idempotencia evita notas duplicadas. |
 
 ## 7. Modelo de datos (DynamoDB single-table `WatcherMain-<stage>`)
@@ -238,8 +246,10 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 6. Tras el *redrive* de la DLQ, el mensaje se procesa correctamente y no se duplica la nota.
 7. El dashboard de CloudWatch muestra el pipeline completo y las alarmas están en `OK` en reposo.
 8. En `dev`, un envío a un número fuera de la allowlist se bloquea y queda registrado (fail-closed verificado).
-9. `sst deploy` levanta el stack completo desde cero en una cuenta limpia, sin pasos manuales salvo confirmar
-   la suscripción de correo del SNS.
+9. Un *redrive* ejecutado 24 h después sigue encontrando el media en S3 y produce la nota completa, aunque la
+   URL original de KAPSO ya haya caducado.
+10. `sst deploy` levanta el stack completo desde cero en una cuenta limpia, sin pasos manuales salvo confirmar
+    la suscripción de correo del SNS.
 
 ## 12. Entregables
 
@@ -259,7 +269,8 @@ deba dispararse. Toda alarma lleva clave de deduplicación `alarmId#dueAtEpoch` 
 | 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado. | Registrar en KAPSO un template de recordatorio antes de la demo. |
 | 5 | **Coste de Bedrock** | Cada nota = 1 invocación. | Cachear por hash de contenido, limitar tamaño de media y poner alarma de presupuesto. |
 | 6 | **Identidad de usuario** | v1 identifica por número de teléfono. | Suficiente para v1; Clerk entra cuando exista panel web. |
-| 7 | **Región** | Debe tener Bedrock y el modelo elegido disponibles. | Fijar la región en `sst.config.ts` y documentarla. |
+| 7 | **Media grande en el webhook** | Descargar en `ingest` añade latencia y puede topar con el límite de la ventana del webhook. | Timeout y memoria holgados en `ingest`, tope de tamaño configurable y rechazo explícito por encima de él; medir `ingest_media_ms` como métrica propia. |
+| 8 | **Región** | Debe tener Bedrock y el modelo elegido disponibles. | Fijar la región en `sst.config.ts` y documentarla. |
 
 ## 14. Glosario
 
