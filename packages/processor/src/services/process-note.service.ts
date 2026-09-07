@@ -20,12 +20,11 @@ export interface ProcessNoteOutput {
 
 export interface ProcessNoteOptions {
   readonly defaultTimezone: string;
-  readonly modelSupportsImages: boolean;
   readonly now?: () => Date;
   readonly newId?: () => string;
 }
 
-const ANALYZABLE_KINDS = new Set(["text", "image", "unknown"]);
+const ANALYZABLE_KINDS = new Set(["text", "image", "audio", "unknown"]);
 
 export class ProcessNoteService {
   private readonly now: () => Date;
@@ -57,15 +56,16 @@ export class ProcessNoteService {
       throw new UnsupportedMediaError(source.kind);
     }
 
-    const image = await this.loadImage(source);
+    const media = await this.loadMedia(source);
 
-    if (image === undefined && (source.text === undefined || source.text.trim() === "")) {
+    if (media === undefined && (source.text === undefined || source.text.trim() === "")) {
       throw new NoAnalyzableContentError();
     }
 
     const analyzed = await this.analyzer.analyze({
       text: source.text,
-      image,
+      image: source.kind === "image" ? media : undefined,
+      audio: source.kind === "audio" ? media : undefined,
       now: this.now(),
       timezone: this.options.defaultTimezone,
     });
@@ -97,20 +97,16 @@ export class ProcessNoteService {
       dueAt: note.dueAt?.toISOString(),
     });
 
-    this.logger.info("note_processed", note.toLogRecord());
+    this.logger.info("note_processed", {
+      ...note.toLogRecord(),
+      transcribed: analyzed.transcript !== undefined,
+    });
 
     return { noteId: note.noteId, hasReminder: note.hasReminder() };
   }
 
-  private async loadImage(source: SourceMessage) {
-    if (source.mediaKey === undefined || source.kind !== "image") {
-      return undefined;
-    }
-
-    // A text-only model still gets the caption: a degraded note beats a lost one.
-    if (!this.options.modelSupportsImages) {
-      this.logger.warn("image_skipped_no_vision", { mediaKey: source.mediaKey });
-
+  private async loadMedia(source: SourceMessage) {
+    if (source.mediaKey === undefined) {
       return undefined;
     }
 

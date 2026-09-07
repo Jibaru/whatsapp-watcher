@@ -106,7 +106,7 @@ flowchart LR
 | 4 | **EventBridge (bus `watcher-<stage>`)** | Ruteo y desacople: `note.received`, `note.processed`, `alarm.due`, `note.failed`. Además reglas `schedule` para el evaluador. | Permite añadir consumidores nuevos sin tocar el productor. |
 | 5 | **SQS `note-processing` (+ DLQ)** | Buffer y reintentos del trabajo pesado. | `maxReceiveCount = 3`; `visibilityTimeout ≥ 6×` el timeout de la Lambda. |
 | 6 | **Lambda `processor`** | Leer el media desde S3, invocar Bedrock, construir la nota estructurada, persistirla y programar recordatorios. | `ReportBatchItemFailures` activo (fallos parciales por mensaje). |
-| 7 | **Amazon Bedrock** | Describir imagen, clasificar y extraer campos estructurados. | Converse API con *tool use* forzado. En `dev`: `openai.gpt-oss-120b-1:0`, de pesos abiertos, **sin formulario de proveedor** pero **solo texto** — con `BEDROCK_MODEL_VISION=false` una nota con imagen se degrada a su caption. Los modelos con visión (Claude, `gpt-5.6-terra`) exigen enviar el *use case details form* del proveedor en la consola de Bedrock. |
+| 7 | **OpenAI (vía AI SDK)** | Transcribir audio, describir imagen, clasificar y extraer campos estructurados. | `generateObject` con schema Zod y `transcribe` para las notas de voz. La API key va como SST Secret. Se cambió Bedrock por esto porque **una sola API cubre texto, imagen y audio** y no exige formularios de acceso por proveedor. El adaptador es una implementación de `NoteAnalyzer`: volver a Bedrock es cambiar una clase. |
 | 8 | **S3 `watcher-media`** | Guardar el media original (privado, cifrado SSE-S3). Escrito por `ingest` durante la propia petición del webhook. | A partir de ahí solo circula la clave `mediaKey`, nunca los bytes. Lifecycle: transición a clases más baratas a los 30 días, **sin expiración**. |
 | 9 | **EventBridge Scheduler** | Un schedule *one-time* por recordatorio (`at(...)`, con timezone del usuario). | Target: SQS `alarm-dispatch`. Se cancela/reprograma si la nota cambia. |
 | 10 | **Lambda `evaluator`** | Cada 5 min: evaluar reglas de alarma por estado/umbral y barrer recordatorios vencidos no enviados. | Idempotente por `alarmId#dueAtEpoch`. |
@@ -276,6 +276,9 @@ sin su causa no dice nada.
 - **Fail-closed por stage**: si `APP_STAGE !== 'production'`, solo se envía a números de `ALLOWED_RECIPIENTS`;
   si la variable falta, no se envía nada.
 - S3 privado, sin acceso público; media servido solo por presigned URL de corta vida.
+- **El contenido de las notas sale de AWS**: texto, imagen y audio viajan a la API de OpenAI para su
+  análisis. Es una consecuencia deliberada de elegir OpenAI sobre Bedrock; si algún día no es aceptable,
+  el adaptador `NoteAnalyzer` permite volver a un modelo dentro de la cuenta.
 - IAM de mínimo privilegio por Lambda (cada una con su rol: `ingest` no puede invocar Bedrock).
 - El número de teléfono se guarda en claro solo en la clave; en logs va hasheado.
 - `production`: `removal: retain` y `protect: true` en el stack SST.
@@ -316,7 +319,7 @@ sin su causa no dice nada.
 
 | # | Tema | Opciones | Recomendación |
 |---|---|---|---|
-| 1 | ~~**Audio → texto**~~ **RESUELTO** | Comprobado en `us-east-1`: **ningún modelo Claude acepta `AUDIO`** (el único con esa modalidad es un modelo de *embeddings*). | **Hace falta Amazon Transcribe** como paso previo dentro de `processor`. Hasta entonces, una nota de voz lanza `UnsupportedMediaError` (permanente) y no se procesa. |
+| 1 | ~~**Audio → texto**~~ **RESUELTO** | En Bedrock ningún Claude acepta `AUDIO`, así que habría hecho falta Amazon Transcribe. | Se resolvió **cambiando de proveedor**: OpenAI transcribe con la misma API key (`transcribe` del AI SDK), sin un servicio más ni otro paso en el pipeline. |
 | 2 | **API Gateway vs Function URL** | JohoFit usa Function URL; aquí se pide API Gateway. | API Gateway HTTP API: aporta throttling, access logs y métricas que las alarmas necesitan. |
 | 3 | **EventBridge Scheduler vs barrido** | Scheduler one-time es exacto pero crea un recurso por recordatorio (límites de cuenta). | Scheduler como mecanismo principal + barrido cada 5 min como red de seguridad. |
 | 4 | **Ventana de 24 h de WhatsApp** | Fuera de la ventana solo se puede enviar un *template* aprobado. | Registrar en KAPSO un template de recordatorio antes de la demo. |

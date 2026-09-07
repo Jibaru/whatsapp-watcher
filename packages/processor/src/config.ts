@@ -6,12 +6,14 @@ export interface ProcessorConfig {
   readonly tableName: string;
   readonly mediaBucket: string;
   readonly eventBusName: string;
+  readonly openAiApiKey: string;
   readonly modelId: string;
-  readonly modelSupportsImages: boolean;
+  readonly transcriptionModelId: string;
   readonly defaultTimezone: string;
 }
 
-const DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-4-6";
+const DEFAULT_MODEL_ID = "gpt-5-mini";
+const DEFAULT_TRANSCRIPTION_MODEL_ID = "whisper-1";
 const DEFAULT_TIMEZONE = "America/Lima";
 
 export function loadProcessorConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfig {
@@ -23,8 +25,9 @@ export function loadProcessorConfig(env: NodeJS.ProcessEnv = process.env): Proce
     tableName: requireEnv(env, "TABLE_NAME"),
     mediaBucket: requireEnv(env, "MEDIA_BUCKET"),
     eventBusName: requireEnv(env, "EVENT_BUS_NAME"),
-    modelId: env.BEDROCK_MODEL_ID?.trim() || DEFAULT_MODEL_ID,
-    modelSupportsImages: env.BEDROCK_MODEL_VISION?.trim() !== "false",
+    openAiApiKey: requireEnv(env, "OPENAI_API_KEY"),
+    modelId: env.OPENAI_MODEL_ID?.trim() || DEFAULT_MODEL_ID,
+    transcriptionModelId: env.OPENAI_TRANSCRIPTION_MODEL_ID?.trim() || DEFAULT_TRANSCRIPTION_MODEL_ID,
     defaultTimezone: env.DEFAULT_TIMEZONE?.trim() || DEFAULT_TIMEZONE,
   };
 }

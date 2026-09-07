@@ -1,10 +1,6 @@
 import type { NoteReceivedDetail } from "@watcher/core";
 import { describe, expect, it } from "bun:test";
-import {
-  ModelUnavailableError,
-  SourceMessageNotFoundError,
-  UnsupportedMediaError,
-} from "../src/domain/errors.js";
+import { ModelUnavailableError, SourceMessageNotFoundError } from "../src/domain/errors.js";
 import { ProcessNoteService } from "../src/services/process-note.service.js";
 import {
   FakeAnalyzer,
@@ -33,7 +29,7 @@ const detail: NoteReceivedDetail = {
 };
 
 function build(
-  options: { source?: SourceMessage | Error; analysis?: AnalyzedNote | Error; vision?: boolean } = {},
+  options: { source?: SourceMessage | Error; analysis?: AnalyzedNote | Error } = {},
 ) {
   const { logger, events } = memoryLogger();
   const media = new FakeMediaReader();
@@ -49,7 +45,6 @@ function build(
     logger,
     {
       defaultTimezone: "America/Lima",
-      modelSupportsImages: options.vision ?? true,
       now: () => now,
       newId: () => "note-1",
     },
@@ -96,39 +91,28 @@ describe("ProcessNoteService", () => {
     expect(analyzer.calls[0]?.image?.mimeType).toBe("image/jpeg");
   });
 
-  it("falls back to the caption when the model cannot see images", async () => {
+  it("transcribes a voice note and analyzes the transcript", async () => {
     const { service, media, analyzer, notes } = build({
-      vision: false,
-      source: { ...sourceMessage, kind: "image", mediaKey: "inbound/wamid.1.jpg", text: "buenas" },
+      source: { ...sourceMessage, kind: "audio", mediaKey: "inbound/wamid.1.ogg", text: undefined },
     });
 
-    await service.execute({ note: { ...detail, kind: "image", hasMedia: true }, receiveCount: 1 });
+    await service.execute({ note: { ...detail, kind: "audio", hasMedia: true }, receiveCount: 1 });
 
-    expect(media.reads).toHaveLength(0);
+    expect(media.reads).toEqual(["inbound/wamid.1.ogg"]);
+    expect(analyzer.calls[0]?.audio?.mimeType).toBe("image/jpeg");
     expect(analyzer.calls[0]?.image).toBeUndefined();
-    expect(analyzer.calls[0]?.text).toBe("buenas");
     expect(notes.saved).toHaveLength(1);
   });
 
-  it("refuses an image with no caption when the model cannot see", async () => {
+  it("refuses a message with neither text nor media", async () => {
     const { service } = build({
-      vision: false,
-      source: { ...sourceMessage, kind: "image", mediaKey: "inbound/wamid.1.jpg", text: undefined },
+      source: { ...sourceMessage, kind: "text", text: undefined, mediaKey: undefined },
     });
 
     const error = await service.execute({ note: detail, receiveCount: 1 }).catch((e) => e);
 
     expect(error.code).toBe("no_analyzable_content");
     expect(error.retryable).toBe(false);
-  });
-
-  it("refuses audio permanently: no Claude model on Bedrock accepts it yet", async () => {
-    const { service, notes } = build({ source: { ...sourceMessage, kind: "audio" } });
-
-    await expect(service.execute({ note: detail, receiveCount: 1 })).rejects.toBeInstanceOf(
-      UnsupportedMediaError,
-    );
-    expect(notes.saved).toHaveLength(0);
   });
 
   it("propagates a missing source as permanent, so it is not retried", async () => {

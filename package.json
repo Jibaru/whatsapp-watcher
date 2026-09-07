@@ -11,6 +11,7 @@
     "deploy": "sst deploy --stage dev",
     "destroy": "sst remove --stage dev",
     "secret:set": "sst secret set KapsoWebhookSecret --stage dev",
+    "secret:openai": "sst secret set OpenAiApiKey --stage dev",
     "typecheck": "tsc --noEmit",
     "test": "bun test packages",
     "test:integration": "sst shell --stage dev -- bun test integration",

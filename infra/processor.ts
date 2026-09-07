@@ -1,4 +1,6 @@
 import { bus, noteProcessingQueue } from "./events";
+
+export const openAiApiKey = new sst.Secret("OpenAiApiKey");
 import { mediaBucket, table } from "./storage";
 
 export const processor = new sst.aws.Function("ProcessorFunction", {
@@ -13,10 +15,7 @@ export const processor = new sst.aws.Function("ProcessorFunction", {
     TABLE_NAME: table.name,
     MEDIA_BUCKET: mediaBucket.name,
     EVENT_BUS_NAME: bus.name,
-    // Open weights, so it needs no provider use case form. Text only until the account
-    // gets access to a vision model (docs/ENUNCIADO.md, 13).
-    BEDROCK_MODEL_ID: "openai.gpt-oss-120b-1:0",
-    BEDROCK_MODEL_VISION: "false",
+    OPENAI_API_KEY: openAiApiKey.value,
   },
   // The function is declared here, not inline in subscribe(), so SST does not wire the
   // consumer permissions for us.
@@ -25,7 +24,6 @@ export const processor = new sst.aws.Function("ProcessorFunction", {
       actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
       resources: [noteProcessingQueue.arn],
     },
-    { actions: ["bedrock:InvokeModel"], resources: ["*"] },
   ],
 });
 
