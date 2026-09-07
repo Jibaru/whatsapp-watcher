@@ -14,9 +14,17 @@ declare module "sst" {
       "type": "sst.aws.Queue"
       "url": string
     }
+    "AllowedRecipients": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "IngestFunction": {
       "name": string
       "type": "sst.aws.Function"
+    }
+    "KapsoPhoneNumberId": {
+      "type": "sst.sst.Secret"
+      "value": string
     }
     "KapsoWebhookSecret": {
       "type": "sst.sst.Secret"

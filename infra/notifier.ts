@@ -1,5 +1,10 @@
 import { alarmDispatchQueue } from "./events";
 
+export const kapsoApiKey = new sst.Secret("KapsoApiKey");
+export const kapsoPhoneNumberId = new sst.Secret("KapsoPhoneNumberId");
+// Not a secret, but the same mechanism keeps it out of the deploying machine's environment.
+export const allowedRecipients = new sst.Secret("AllowedRecipients", "");
+
 export const notifier = new sst.aws.Function("NotifierFunction", {
   handler: "packages/notifier/src/main.handler",
   runtime: "nodejs24.x",
@@ -8,7 +13,9 @@ export const notifier = new sst.aws.Function("NotifierFunction", {
   logging: { retention: "2 weeks" },
   environment: {
     APP_STAGE: $app.stage,
-    ALLOWED_RECIPIENTS: process.env.ALLOWED_RECIPIENTS ?? "",
+    KAPSO_API_KEY: kapsoApiKey.value,
+    KAPSO_PHONE_NUMBER_ID: kapsoPhoneNumberId.value,
+    ALLOWED_RECIPIENTS: allowedRecipients.value,
   },
   permissions: [
     {

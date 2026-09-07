@@ -66,9 +66,14 @@ Deploying needs two secrets and an AWS profile (`iamadmin-general` for dev, in `
 ```bash
 bun run secret:set         # KAPSO webhook secret, from its dashboard
 bun run secret:openai      # OpenAI API key
+bun run secret:kapso-api   # KAPSO API key, from Project Settings > API Keys
+bun run secret:phone-id    # the phone_number_id the webhook payload carries
+bun run allowlist:set      # your own number in E.164 while testing
 bun run deploy             # sst deploy --stage dev
 bun run test:integration   # runs against the deployed stage
 ```
+
+A secret with no value stops the deploy rather than shipping a lambda that cannot work.
 
 `bun run dev` starts `sst dev`, which deploys the real API Gateway but runs the lambdas on your
 machine, so logs land in your terminal and changes apply without redeploying.
@@ -91,8 +96,10 @@ bun run webhook:test <url> <secret>
 
 ## Known gaps
 
-- The notifier does not send yet: `LoggingWhatsAppSender` logs what would go out. It needs the KAPSO
-  outbound credentials and a template approved for messages outside the 24 hour window.
+- Only free-form messages are sent, which WhatsApp allows for 24 hours after the user writes. The
+  confirmation always fits; a reminder that fires the next day does not, and needs an approved
+  template. The sender already recognises Meta's code 131047 and treats it as permanent instead of
+  retrying, so the case is visible in the logs the day it happens.
 - A permanent failure drops the note quietly. The raw item should be left as `FAILED` and a
   `note.failed` event emitted, as the design says.
 - Note content leaves AWS: text, images and audio are sent to OpenAI. Swapping that for a model
