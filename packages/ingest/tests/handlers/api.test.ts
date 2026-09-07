@@ -3,23 +3,36 @@ import { describe, expect, it } from "bun:test";
 import { createApp } from "../../src/app.js";
 import type { IngestConfig } from "../../src/config.js";
 import { ReceiveInboundMessageService } from "../../src/services/receive-inbound-message.service.js";
-import { FakeInboundMessageRepository, MemoryLogger } from "../support/fakes.js";
+import {
+  FakeInboundMediaRepository,
+  FakeInboundMessageRepository,
+  MemoryLogger,
+} from "../support/fakes.js";
 
 const config: IngestConfig = {
   stage: "test",
   isProduction: false,
   kapsoWebhookSecret: "test-secret",
+  mediaBucket: "test-bucket",
+  tableName: "test-table",
+  mediaMaxBytes: 16 * 1024 * 1024,
 };
 
 function build(options: { logRawPayload?: boolean } = {}) {
   const logger = new MemoryLogger();
   const repository = new FakeInboundMessageRepository();
-  const receiveInboundMessage = new ReceiveInboundMessageService(repository, logger, {
+  const mediaRepository = new FakeInboundMediaRepository();
+  const receiveInboundMessage = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });
 
-  return { app: createApp({ config, logger, receiveInboundMessage }), repository, logger };
+  return {
+    app: createApp({ config, logger, receiveInboundMessage }),
+    repository,
+    mediaRepository,
+    logger,
+  };
 }
 
 function inboundMessage(overrides: Record<string, unknown> = {}) {

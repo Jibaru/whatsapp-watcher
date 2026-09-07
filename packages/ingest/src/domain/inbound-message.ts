@@ -4,6 +4,8 @@ export type InboundMessageKind = "text" | "image" | "audio" | "unknown";
 
 export interface InboundMedia {
   readonly url: string;
+  /** Set once the file is in S3; the media repository owns the layout. */
+  readonly key?: string;
   readonly mimeType?: string;
   readonly sizeBytes?: number;
 }
@@ -17,6 +19,7 @@ export interface InboundMessageProps {
   readonly fromCountry?: string;
   readonly text?: string;
   readonly media?: InboundMedia;
+  readonly rawPayload?: unknown;
 }
 
 export class InboundMessage {
@@ -28,6 +31,7 @@ export class InboundMessage {
   readonly fromCountry?: string;
   readonly text?: string;
   readonly media?: InboundMedia;
+  readonly rawPayload?: unknown;
 
   private constructor(props: InboundMessageProps) {
     this.messageId = props.messageId;
@@ -38,6 +42,7 @@ export class InboundMessage {
     this.fromCountry = props.fromCountry;
     this.text = props.text;
     this.media = props.media;
+    this.rawPayload = props.rawPayload;
   }
 
   static create(props: InboundMessageProps): InboundMessage {
@@ -56,10 +61,6 @@ export class InboundMessage {
     return this.media !== undefined;
   }
 
-  mediaKey(stage: string): string | undefined {
-    return this.hasMedia() ? `${stage}/${this.messageId}` : undefined;
-  }
-
   toLogRecord(): Record<string, unknown> {
     return {
       messageId: this.messageId,
@@ -68,6 +69,7 @@ export class InboundMessage {
       fromIsE164: this.fromIsE164,
       fromCountry: this.fromCountry,
       hasMedia: this.hasMedia(),
+      mediaKey: this.media?.key,
       mediaMimeType: this.media?.mimeType,
       mediaSizeBytes: this.media?.sizeBytes,
       textLength: this.text?.length ?? 0,

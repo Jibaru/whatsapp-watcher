@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { PhoneNumber, setLogContext, type Logger } from "@watcher/core";
-import { InboundMessage, type InboundMessageKind } from "../domain/inbound-message.js";
+import { InboundMessage, type InboundMedia, type InboundMessageKind } from "../domain/inbound-message.js";
+import {
+  MediaTooLargeError,
+  type InboundMediaRepository,
+} from "../repositories/inbound-media.repository.js";
 import type { InboundMessageRepository } from "../repositories/inbound-message.repository.js";
 
 export interface ReceiveInboundMessageInput {
@@ -37,6 +41,7 @@ export class ReceiveInboundMessageService {
 
   constructor(
     private readonly repository: InboundMessageRepository,
+    private readonly mediaRepository: InboundMediaRepository,
     private readonly logger: Logger,
     private readonly options: ReceiveInboundMessageOptions,
   ) {
@@ -68,21 +73,19 @@ export class ReceiveInboundMessageService {
       });
     }
 
+    const messageId = generatedMessageId ? this.newId() : input.messageId!.trim();
+    const media = await this.storeMedia(messageId, input);
+
     const message = InboundMessage.create({
-      messageId: generatedMessageId ? this.newId() : input.messageId!.trim(),
+      messageId,
       from: phone?.e164 ?? rawFrom ?? UNKNOWN_SENDER,
       fromIsE164: phone !== undefined,
       fromCountry: phone?.country,
       kind: normalizeKind(input.kind),
       receivedAt: input.receivedAt,
       text: input.text,
-      media: input.mediaUrl
-        ? {
-            url: input.mediaUrl,
-            mimeType: input.mediaMimeType,
-            sizeBytes: input.mediaSizeBytes,
-          }
-        : undefined,
+      media,
+      rawPayload: input.rawPayload,
     });
 
     setLogContext({ messageId: message.messageId });
@@ -100,6 +103,48 @@ export class ReceiveInboundMessageService {
       duplicate: outcome.duplicate,
       generatedMessageId,
     };
+  }
+
+  /**
+   * Runs before the message is written: the KAPSO url is short lived, so a note that lands
+   * in the DLQ hours later must still find its file (docs/ENUNCIADO.md, 6.1).
+   */
+  private async storeMedia(
+    messageId: string,
+    input: ReceiveInboundMessageInput,
+  ): Promise<InboundMedia | undefined> {
+    if (input.mediaUrl === undefined) {
+      return undefined;
+    }
+
+    try {
+      const stored = await this.mediaRepository.store({
+        sourceUrl: input.mediaUrl,
+        messageId,
+        declaredSizeBytes: input.mediaSizeBytes,
+        contentType: input.mediaMimeType,
+      });
+
+      return {
+        url: input.mediaUrl,
+        key: stored.key,
+        mimeType: stored.contentType,
+        sizeBytes: stored.sizeBytes,
+      };
+    } catch (error) {
+      // Oversized media can never succeed, so keep the note and drop the file instead of
+      // failing the webhook into an endless retry. Anything else is transient: let it throw.
+      if (error instanceof MediaTooLargeError) {
+        this.logger.warn("media_too_large", {
+          sizeBytes: error.sizeBytes,
+          maxBytes: error.maxBytes,
+        });
+
+        return undefined;
+      }
+
+      throw error;
+    }
   }
 }
 

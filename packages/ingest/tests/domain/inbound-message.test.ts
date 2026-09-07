@@ -17,7 +17,7 @@ describe("InboundMessage", () => {
     expect(() => InboundMessage.create({ ...baseProps, from: "" })).toThrow(/from/);
   });
 
-  it("knows whether it carries media and derives its S3 key", () => {
+  it("knows whether it carries media", () => {
     const withoutMedia = InboundMessage.create(baseProps);
     const withMedia = InboundMessage.create({
       ...baseProps,
@@ -26,9 +26,8 @@ describe("InboundMessage", () => {
     });
 
     expect(withoutMedia.hasMedia()).toBe(false);
-    expect(withoutMedia.mediaKey("dev")).toBeUndefined();
     expect(withMedia.hasMedia()).toBe(true);
-    expect(withMedia.mediaKey("dev")).toBe("dev/wamid-1");
+    expect(withMedia.media?.mimeType).toBe("audio/ogg");
   });
 
   it("never exposes the phone number or the text in its log record", () => {

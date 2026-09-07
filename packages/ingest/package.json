@@ -7,6 +7,9 @@
     ".": "./src/main.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1127.0",
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@aws-sdk/lib-dynamodb": "^3.1127.0",
     "@hono/zod-openapi": "^1.6.3",
     "@watcher/core": "workspace:*",
     "hono": "^4.13.7",

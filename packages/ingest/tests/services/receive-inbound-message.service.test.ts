@@ -1,21 +1,30 @@
 import { describe, expect, it } from "bun:test";
 import { ReceiveInboundMessageService } from "../../src/services/receive-inbound-message.service.js";
-import { FakeInboundMessageRepository, MemoryLogger } from "../support/fakes.js";
+import {
+  CallLog,
+  FakeInboundMediaRepository,
+  FakeInboundMessageRepository,
+  MemoryLogger,
+} from "../support/fakes.js";
 
 const receivedAt = new Date("2026-09-06T10:00:00.000Z");
 
-function build(options: { logRawPayload?: boolean; duplicate?: boolean } = {}) {
+function build(
+  options: { logRawPayload?: boolean; duplicate?: boolean; media?: { tooLarge?: boolean; fails?: boolean } } = {},
+) {
   const logger = new MemoryLogger();
-  const repository = new FakeInboundMessageRepository({
-    stored: !options.duplicate,
-    duplicate: options.duplicate ?? false,
-  });
-  const service = new ReceiveInboundMessageService(repository, logger, {
+  const callLog = new CallLog();
+  const repository = new FakeInboundMessageRepository(
+    { stored: !options.duplicate, duplicate: options.duplicate ?? false },
+    callLog,
+  );
+  const mediaRepository = new FakeInboundMediaRepository(options.media ?? {}, callLog);
+  const service = new ReceiveInboundMessageService(repository, mediaRepository, logger, {
     logRawPayload: options.logRawPayload ?? false,
     newId: () => "generated-id",
   });
 
-  return { service, repository, logger };
+  return { service, repository, mediaRepository, logger, callLog };
 }
 
 describe("ReceiveInboundMessageService", () => {
@@ -83,6 +92,62 @@ describe("ReceiveInboundMessageService", () => {
     });
 
     expect(output.duplicate).toBe(true);
+  });
+
+  it("stores the media before writing the message", async () => {
+    const { service, repository, mediaRepository, callLog } = build();
+
+    await service.execute({
+      messageId: "wamid-1",
+      from: "+51999888777",
+      kind: "image",
+      mediaUrl: "https://kapso.example/media/1.jpg",
+      mediaMimeType: "image/jpeg",
+      mediaSizeBytes: 75681,
+      receivedAt,
+      rawPayload: {},
+    });
+
+    expect(callLog.calls).toEqual(["store", "save"]);
+    expect(mediaRepository.stored[0]).toMatchObject({
+      sourceUrl: "https://kapso.example/media/1.jpg",
+      messageId: "wamid-1",
+      declaredSizeBytes: 75681,
+    });
+    expect(repository.saved[0]?.media?.key).toBe("inbound/wamid-1.jpg");
+  });
+
+  it("keeps the note without its file when the media is too large", async () => {
+    const { service, repository, logger } = build({ media: { tooLarge: true } });
+
+    await service.execute({
+      messageId: "wamid-1",
+      from: "+51999888777",
+      text: "caption",
+      mediaUrl: "https://kapso.example/huge.mp4",
+      receivedAt,
+      rawPayload: {},
+    });
+
+    expect(repository.saved).toHaveLength(1);
+    expect(repository.saved[0]?.hasMedia()).toBe(false);
+    expect(repository.saved[0]?.text).toBe("caption");
+    expect(logger.events()).toContain("media_too_large");
+  });
+
+  it("does not write the message when the download fails, so KAPSO retries", async () => {
+    const { service, repository } = build({ media: { fails: true } });
+
+    await expect(
+      service.execute({
+        messageId: "wamid-1",
+        from: "+51999888777",
+        mediaUrl: "https://kapso.example/1.jpg",
+        receivedAt,
+        rawPayload: {},
+      }),
+    ).rejects.toThrow(/download failed/);
+    expect(repository.saved).toHaveLength(0);
   });
 
   it("dumps the raw payload only when enabled", async () => {

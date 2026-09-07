@@ -1,5 +1,11 @@
 import { JsonLogger, type LogFields, type Logger } from "@watcher/core";
 import type { InboundMessage } from "../../src/domain/inbound-message.js";
+import {
+  MediaTooLargeError,
+  type InboundMediaRepository,
+  type StoreMediaCommand,
+  type StoredMedia,
+} from "../../src/repositories/inbound-media.repository.js";
 import type {
   InboundMessageRepository,
   SaveOutcome,
@@ -41,14 +47,51 @@ export class MemoryLogger implements Logger {
   }
 }
 
+/** Shared between both fakes so a test can assert that the media lands before the write. */
+export class CallLog {
+  readonly calls: string[] = [];
+}
+
 export class FakeInboundMessageRepository implements InboundMessageRepository {
   readonly saved: InboundMessage[] = [];
 
-  constructor(private readonly outcome: SaveOutcome = { stored: true, duplicate: false }) {}
+  constructor(
+    private readonly outcome: SaveOutcome = { stored: true, duplicate: false },
+    private readonly callLog = new CallLog(),
+  ) {}
 
   async save(message: InboundMessage): Promise<SaveOutcome> {
+    this.callLog.calls.push("save");
     this.saved.push(message);
 
     return this.outcome;
+  }
+}
+
+export class FakeInboundMediaRepository implements InboundMediaRepository {
+  readonly stored: StoreMediaCommand[] = [];
+
+  constructor(
+    private readonly behaviour: { tooLarge?: boolean; fails?: boolean } = {},
+    private readonly callLog = new CallLog(),
+  ) {}
+
+  async store(command: StoreMediaCommand): Promise<StoredMedia> {
+    this.callLog.calls.push("store");
+    this.stored.push(command);
+
+    if (this.behaviour.tooLarge === true) {
+      throw new MediaTooLargeError(99_000_000, 16_777_216);
+    }
+
+    if (this.behaviour.fails === true) {
+      throw new Error("download failed");
+    }
+
+    return {
+      key: `inbound/${command.messageId}.jpg`,
+      sizeBytes: command.declaredSizeBytes ?? 1024,
+      contentType: command.contentType ?? "image/jpeg",
+    };
   }
 }

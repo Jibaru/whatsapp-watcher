@@ -29,6 +29,12 @@ export function createApp(deps: AppDependencies) {
   app.use(withLogContext());
   app.use("/webhooks/*", verifyKapsoSignature(deps.config, deps.logger));
 
+  app.onError((error, c) => {
+    deps.logger.error("request_failed", { message: error.message, name: error.name });
+
+    return c.json({ error: "internal_error" }, 500);
+  });
+
   app.openapi(healthRoute, makeHealthHandler(deps.config.stage));
   app.openapi(kapsoWebhookRoute, makeKapsoWebhookHandler(deps.receiveInboundMessage));
 
