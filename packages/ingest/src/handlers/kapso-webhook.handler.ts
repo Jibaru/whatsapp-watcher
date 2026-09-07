@@ -2,17 +2,27 @@ import { createRoute, z, type RouteHandler } from "@hono/zod-openapi";
 import type { ReceiveInboundMessageService } from "../services/receive-inbound-message.service.js";
 
 /**
- * Provisional: the real KAPSO payload is unconfirmed, so every field is optional and
- * unknown ones pass through. Tighten it once CloudWatch shows the first real message.
+ * Shape of whatsapp.message.received. Every field stays optional and unknown ones pass
+ * through: a payload we cannot read must be logged, never dropped. Buffering must stay off
+ * in KAPSO, or the body arrives as a batch envelope instead of a single message.
  */
+const KapsoMessageSchema = z.looseObject({
+  id: z.string().optional(),
+  type: z.string().optional(),
+  from: z.string().optional(),
+  text: z.looseObject({ body: z.string().optional() }).optional(),
+  kapso: z
+    .looseObject({
+      has_media: z.boolean().optional(),
+      media_url: z.string().optional(),
+      content: z.string().optional(),
+    })
+    .optional(),
+});
+
 export const KapsoWebhookBodySchema = z
   .looseObject({
-    id: z.string().optional(),
-    type: z.string().optional(),
-    from: z.string().optional(),
-    text: z.string().optional(),
-    media_url: z.string().optional(),
-    media_mime_type: z.string().optional(),
+    message: KapsoMessageSchema.optional(),
   })
   .openapi("KapsoWebhookBody");
 
@@ -40,7 +50,7 @@ export const kapsoWebhookRoute = createRoute({
       content: { "application/json": { schema: WebhookAcceptedSchema } },
     },
     400: { description: "Invalid payload" },
-    401: { description: "Missing or wrong secret" },
+    401: { description: "Missing or wrong signature" },
   },
 });
 
@@ -50,14 +60,14 @@ export function makeKapsoWebhookHandler(
 ): RouteHandler<typeof kapsoWebhookRoute> {
   return async (c) => {
     const body = c.req.valid("json");
+    const message = body.message;
 
     const result = await service.execute({
-      messageId: body.id,
-      from: body.from,
-      kind: body.type,
-      text: body.text,
-      mediaUrl: body.media_url,
-      mediaMimeType: body.media_mime_type,
+      messageId: message?.id,
+      from: message?.from,
+      kind: message?.type,
+      text: message?.text?.body ?? message?.kapso?.content,
+      mediaUrl: message?.kapso?.media_url,
       receivedAt: clock(),
       rawPayload: body,
     });

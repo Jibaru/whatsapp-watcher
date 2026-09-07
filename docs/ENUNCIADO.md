@@ -117,7 +117,10 @@ flowchart LR
 ### 6.1 Flujo principal — captura de nota
 
 1. El usuario manda "recuérdame llamar al proveedor mañana a las 10" (o una foto, o un audio).
-2. KAPSO hace `POST` al webhook con el mensaje y, si hay media, una referencia/URL temporal.
+2. KAPSO hace `POST` al webhook con el evento `whatsapp.message.received` (el único al que se suscribe
+   la ingesta) y, si hay media, una URL temporal en `message.kapso.media_url`. El *buffering* de KAPSO
+   debe quedar **desactivado**: agrupa varios mensajes en un sobre `batch` y rompe la relación 1:1 entre
+   mensaje y nota.
 3. `ingest` valida el secret; si falla → `401` y métrica `webhook_unauthorized`.
 4. Si el mensaje trae media, `ingest` lo descarga **antes de nada más** y lo sube a
    `s3://watcher-media/<stage>/<messageId>` (la URL de KAPSO es temporal y caduca).

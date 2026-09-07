@@ -22,6 +22,22 @@ function build() {
   return { app: createApp({ config, logger, receiveInboundMessage }), repository, logger };
 }
 
+function inboundMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    message: {
+      id: "wamid.123",
+      timestamp: "1730092800",
+      type: "text",
+      from: "16315551181",
+      text: { body: "Hello" },
+      kapso: { direction: "inbound", status: "received", has_media: false, content: "Hello" },
+      ...overrides,
+    },
+    conversation: { id: "conv_123", phone_number: "16315551181" },
+    phone_number_id: "123456789012345",
+  };
+}
+
 function post(payload: unknown, options: { signature?: string | null } = {}) {
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -84,24 +100,40 @@ describe("ingest api", () => {
   it("accepts a correctly signed message and returns its id", async () => {
     const { app, repository } = build();
 
-    const response = await app.request(
-      post({ id: "wamid-1", from: "+51999888777", type: "text", text: "hola" }),
-    );
+    const response = await app.request(post(inboundMessage()));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       status: "accepted",
-      messageId: "wamid-1",
+      messageId: "wamid.123",
       duplicate: false,
     });
-    expect(repository.saved).toHaveLength(1);
+    expect(repository.saved[0]?.from).toBe("16315551181");
+    expect(repository.saved[0]?.text).toBe("Hello");
   });
 
-  it("accepts unknown fields while the KAPSO format is unconfirmed", async () => {
+  it("reads the media url out of the kapso envelope", async () => {
+    const { app, repository } = build();
+
+    await app.request(
+      post(
+        inboundMessage({
+          type: "audio",
+          text: undefined,
+          kapso: { has_media: true, media_url: "https://kapso.example/media/1.ogg" },
+        }),
+      ),
+    );
+
+    expect(repository.saved[0]?.kind).toBe("audio");
+    expect(repository.saved[0]?.media?.url).toBe("https://kapso.example/media/1.ogg");
+  });
+
+  it("accepts unknown fields: the payload carries more than we map", async () => {
     const { app, repository } = build();
 
     const response = await app.request(
-      post({ id: "wamid-2", from: "+51999888777", unexpected_field: { nested: true } }),
+      post({ ...inboundMessage(), is_new_conversation: true, unexpected_field: { nested: true } }),
     );
 
     expect(response.status).toBe(200);
@@ -111,7 +143,7 @@ describe("ingest api", () => {
   it("returns 400 when a known field has the wrong type", async () => {
     const { app, repository } = build();
 
-    const response = await app.request(post({ id: 123 }));
+    const response = await app.request(post({ message: { id: 123 } }));
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_payload" });
